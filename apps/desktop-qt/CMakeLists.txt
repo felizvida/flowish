@@ -36,6 +36,7 @@ set(FLOWJOISH_RUST_LIB
 )
 
 add_custom_target(flowjoish-rust-bridge ALL
+    BYPRODUCTS "${FLOWJOISH_RUST_LIB}"
     COMMAND cargo build -p flowjoish-desktop-bridge ${FLOWJOISH_RUST_ARGS}
     WORKING_DIRECTORY "${FLOWJOISH_WORKSPACE_ROOT}"
     COMMENT "Building Rust desktop bridge"

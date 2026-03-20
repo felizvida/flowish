@@ -25,7 +25,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - [Tutorial](docs/TUTORIAL.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
 - [Operations Guide](docs/OPERATIONS.md)
-- [Release Notes](docs/releases/v0.1.0.md)
+- [Release Notes](docs/releases/v0.1.1.md)
 - [Architecture Decision Record](docs/architecture/adr-0001-rust-qt-rust-backend.md)
 
 ## Current Capabilities
