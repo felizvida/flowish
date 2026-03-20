@@ -1,0 +1,21 @@
+changelog:
+  categories:
+    - title: Desktop
+      labels:
+        - desktop
+        - ux
+    - title: Engine
+      labels:
+        - engine
+        - reproducibility
+    - title: Tooling and Infra
+      labels:
+        - tooling
+        - ci
+        - infra
+    - title: Documentation
+      labels:
+        - documentation
+  exclude:
+    labels:
+      - chore

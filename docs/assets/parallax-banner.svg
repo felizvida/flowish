@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Parallax</title>
+  <desc id="desc">Parallax banner with layered gradients and a scientific desktop aesthetic.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#12271f" />
+      <stop offset="55%" stop-color="#224739" />
+      <stop offset="100%" stop-color="#d7b676" />
+    </linearGradient>
+    <linearGradient id="glass" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f8f1e4" stop-opacity="0.18" />
+      <stop offset="100%" stop-color="#f8f1e4" stop-opacity="0.05" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="360" rx="32" fill="url(#bg)" />
+  <circle cx="1020" cy="86" r="130" fill="#f2d19a" fill-opacity="0.15" />
+  <circle cx="930" cy="280" r="170" fill="#f7ecd4" fill-opacity="0.08" />
+  <rect x="44" y="44" width="1112" height="272" rx="24" fill="url(#glass)" stroke="#f4e7cf" stroke-opacity="0.22" />
+  <path d="M86 238 C190 168, 278 142, 374 152 S556 216, 668 196 S876 94, 1086 136" fill="none" stroke="#f5d7a0" stroke-width="6" stroke-linecap="round" stroke-opacity="0.65" />
+  <path d="M92 264 C202 224, 314 220, 420 238 S650 298, 770 254 S960 158, 1090 188" fill="none" stroke="#f8efe0" stroke-width="3" stroke-linecap="round" stroke-opacity="0.55" />
+  <text x="96" y="154" fill="#f8f1e4" font-size="88" font-family="Georgia, 'Times New Roman', serif" letter-spacing="3">Parallax</text>
+  <text x="100" y="210" fill="#d9eadf" font-size="26" font-family="'Trebuchet MS', Verdana, sans-serif" letter-spacing="1.2">
+    Fast, trustworthy, reproducible cytometry analysis
+  </text>
+  <text x="100" y="258" fill="#f5ddaf" font-size="18" font-family="'Trebuchet MS', Verdana, sans-serif" letter-spacing="2">
+    RUST ENGINE  •  QT/QML DESKTOP  •  LOCAL-FIRST  •  REPLAYABLE COMMAND LOG
+  </text>
+</svg>

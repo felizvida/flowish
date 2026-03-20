@@ -1,0 +1,125 @@
+use std::env;
+use std::fs;
+use std::process::ExitCode;
+
+use flowjoish_core::{Command, CommandLog, Point2D, ReplayEnvironment, SampleFrame};
+use flowjoish_fcs::parse as parse_fcs;
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("{message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), String> {
+    let args = env::args().collect::<Vec<_>>();
+    match args.get(1).map(String::as_str) {
+        Some("inspect-fcs") => {
+            let path = args
+                .get(2)
+                .ok_or_else(|| "usage: flowjoish-cli inspect-fcs <path>".to_string())?;
+            inspect_fcs(path)
+        }
+        Some("demo-replay") => demo_replay(),
+        _ => Err("usage: flowjoish-cli <inspect-fcs|demo-replay> [args]".to_string()),
+    }
+}
+
+fn inspect_fcs(path: &str) -> Result<(), String> {
+    let bytes = fs::read(path).map_err(|error| format!("failed to read {path}: {error}"))?;
+    let parsed = parse_fcs(&bytes).map_err(|error| format!("failed to parse FCS: {error}"))?;
+
+    println!("version: {}", parsed.header.version);
+    println!("events: {}", parsed.event_count);
+    println!("parameters: {}", parsed.parameter_count);
+    println!("data_type: {}", parsed.data_type);
+    println!("byte_order: {:?}", parsed.byte_order);
+    println!("channels:");
+    for channel in &parsed.channels {
+        println!(
+            "  - P{} {} {}",
+            channel.index,
+            channel.short_name,
+            channel.long_name.as_deref().unwrap_or("")
+        );
+    }
+    if let Some(compensation) = &parsed.compensation {
+        println!(
+            "compensation: {}x{} via {}",
+            compensation.dimension, compensation.dimension, compensation.source_key
+        );
+    }
+    println!("metadata keys: {}", parsed.metadata.len());
+    Ok(())
+}
+
+fn demo_replay() -> Result<(), String> {
+    let sample = SampleFrame::new(
+        "demo-sample",
+        vec![
+            "FSC-A".to_string(),
+            "SSC-A".to_string(),
+            "CD3".to_string(),
+            "CD4".to_string(),
+        ],
+        vec![
+            vec![10.0, 10.0, 1.0, 9.0],
+            vec![20.0, 20.0, 5.0, 8.0],
+            vec![30.0, 30.0, 9.0, 1.0],
+            vec![80.0, 80.0, 4.0, 2.0],
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+
+    let mut environment = ReplayEnvironment::new();
+    environment
+        .insert_sample(sample)
+        .map_err(|error| error.to_string())?;
+
+    let mut log = CommandLog::new();
+    log.append(Command::RectangleGate {
+        sample_id: "demo-sample".to_string(),
+        population_id: "lymphocytes".to_string(),
+        parent_population: None,
+        x_channel: "FSC-A".to_string(),
+        y_channel: "SSC-A".to_string(),
+        x_min: 0.0,
+        x_max: 35.0,
+        y_min: 0.0,
+        y_max: 35.0,
+    });
+    log.append(Command::PolygonGate {
+        sample_id: "demo-sample".to_string(),
+        population_id: "cd3_cd4".to_string(),
+        parent_population: Some("lymphocytes".to_string()),
+        x_channel: "CD3".to_string(),
+        y_channel: "CD4".to_string(),
+        vertices: vec![
+            Point2D { x: 0.0, y: 7.0 },
+            Point2D { x: 6.0, y: 7.0 },
+            Point2D { x: 6.0, y: 10.0 },
+            Point2D { x: 0.0, y: 10.0 },
+        ],
+    });
+
+    let state = log
+        .replay(&environment)
+        .map_err(|error| error.to_string())?;
+    println!("command_log_json={}", log.to_json());
+    println!("execution_hash={:016x}", state.execution_hash);
+    for node in &state.execution_graph {
+        let population = state
+            .populations
+            .get(&node.population_id)
+            .ok_or_else(|| "replay graph and populations diverged".to_string())?;
+        println!(
+            "{} sample={} matched={} hash={:016x}",
+            node.population_id, node.sample_id, population.matched_events, node.hash
+        );
+    }
+    Ok(())
+}

@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "crates/flowjoish-backend",
+    "crates/flowjoish-cli",
+    "crates/flowjoish-core",
+    "crates/flowjoish-desktop-bridge",
+    "crates/flowjoish-fcs",
+]
+resolver = "2"
