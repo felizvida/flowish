@@ -25,7 +25,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - [Tutorial](docs/TUTORIAL.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
 - [Operations Guide](docs/OPERATIONS.md)
-- [Release Notes](docs/releases/v0.1.1.md)
+- [Release Notes](docs/releases/v0.1.2.md)
 - [Architecture Decision Record](docs/architecture/adr-0001-rust-qt-rust-backend.md)
 
 ## Current Capabilities
@@ -80,6 +80,10 @@ cargo run -p flowjoish-backend -- describe
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security Policy](SECURITY.md)
 - [Support](SUPPORT.md)
+
+## License
+
+Parallax is released under the Apache License 2.0. See [LICENSE](LICENSE).
 
 ## Internal Naming
 

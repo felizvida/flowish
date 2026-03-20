@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.2 - 2026-03-20
+
+Licensing and delivery-policy update.
+
+### Highlights
+
+- Declared the repository under Apache License 2.0
+- Added license documentation to the README
+- Updated the service delivery skill to remember Apache-2.0 as the default license for future public releases unless the user specifies otherwise
+
 ## v0.1.1 - 2026-03-20
 
 Polish patch release for GitHub delivery and CI reliability.
