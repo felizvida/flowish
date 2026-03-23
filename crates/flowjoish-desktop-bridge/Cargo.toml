@@ -8,3 +8,4 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 flowjoish-core = { path = "../flowjoish-core" }
+flowjoish-fcs = { path = "../flowjoish-fcs" }

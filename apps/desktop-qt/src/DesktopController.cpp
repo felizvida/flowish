@@ -1,5 +1,6 @@
 #include "DesktopController.h"
 
+#include <QFileDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -15,6 +16,10 @@ char *flowjoish_desktop_session_dispatch_json(void *session, const char *command
 char *flowjoish_desktop_session_reset(void *session);
 char *flowjoish_desktop_session_undo(void *session);
 char *flowjoish_desktop_session_redo(void *session);
+char *flowjoish_desktop_session_import_fcs_json(void *session, const char *filePathsJson);
+char *flowjoish_desktop_session_select_sample(void *session, const char *sampleId);
+char *flowjoish_desktop_session_save_workspace(void *session, const char *workspacePath);
+char *flowjoish_desktop_session_load_workspace(void *session, const char *workspacePath);
 void flowjoish_desktop_session_free(void *session);
 void flowjoish_string_free(char *ptr);
 }
@@ -76,6 +81,22 @@ QString DesktopController::executionHash() const {
     return executionHash_;
 }
 
+QString DesktopController::workspacePath() const {
+    return workspacePath_;
+}
+
+QVariantMap DesktopController::sample() const {
+    return sample_;
+}
+
+QVariantList DesktopController::samples() const {
+    return samples_;
+}
+
+QVariantList DesktopController::analysisActions() const {
+    return analysisActions_;
+}
+
 QVariantList DesktopController::populations() const {
     return populations_;
 }
@@ -88,12 +109,32 @@ QVariantList DesktopController::plots() const {
     return plots_;
 }
 
+QString DesktopController::selectedSampleId() const {
+    return selectedSampleId_;
+}
+
 QString DesktopController::selectedPopulationKey() const {
     return selectedPopulationKey_;
 }
 
 QString DesktopController::lastError() const {
     return lastError_;
+}
+
+void DesktopController::setSelectedSampleId(const QString &sampleId) {
+    if (sampleId.isEmpty() || sampleId == selectedSampleId_) {
+        return;
+    }
+
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return;
+    }
+
+    const QByteArray utf8 = sampleId.toUtf8();
+    applyRustPayload(
+        takeRustString(flowjoish_desktop_session_select_sample(session_, utf8.constData())),
+        true);
 }
 
 void DesktopController::setSelectedPopulationKey(const QString &populationKey) {
@@ -120,9 +161,241 @@ bool DesktopController::dispatchCommandJson(const QString &commandJson) {
 
 void DesktopController::applyPresetCommand(const QString &presetId) {
     const QString commandJson = buildPresetCommandJson(presetId);
-    if (!commandJson.isEmpty()) {
-        dispatchCommandJson(commandJson);
+    if (commandJson.isEmpty()) {
+        setLastError(
+            QStringLiteral("Preset '%1' is not compatible with the active sample").arg(presetId));
+        return;
     }
+
+    dispatchCommandJson(commandJson);
+}
+
+bool DesktopController::canApplyPreset(const QString &presetId) const {
+    return presetIsAvailable(presetId);
+}
+
+void DesktopController::importFcsFiles() {
+    const QStringList paths = QFileDialog::getOpenFileNames(
+        nullptr,
+        tr("Import FCS Files"),
+        QString(),
+        tr("Flow Cytometry Standard Files (*.fcs);;All Files (*)"));
+    if (!paths.isEmpty()) {
+        loadSampleFiles(paths);
+    }
+}
+
+bool DesktopController::loadSampleFiles(const QStringList &paths) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    QJsonArray filePaths;
+    for (const QString &path : paths) {
+        const QString trimmed = path.trimmed();
+        if (!trimmed.isEmpty()) {
+            filePaths.push_back(trimmed);
+        }
+    }
+
+    if (filePaths.isEmpty()) {
+        setLastError("No FCS files were selected for import");
+        return false;
+    }
+
+    const QByteArray payload =
+        QJsonDocument(filePaths).toJson(QJsonDocument::Compact);
+    const bool imported = applyRustPayload(
+        takeRustString(
+            flowjoish_desktop_session_import_fcs_json(session_, payload.constData())),
+        true);
+    if (imported) {
+        setWorkspacePath(QString());
+    }
+    return imported;
+}
+
+void DesktopController::saveWorkspaceAs() {
+    const QString path = QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Save Workspace"),
+        workspacePath_,
+        tr("Parallax Workspace (*.parallax.json);;JSON Files (*.json)"));
+    if (!path.isEmpty()) {
+        saveWorkspaceToFile(path);
+    }
+}
+
+bool DesktopController::saveWorkspaceToFile(const QString &path) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Workspace path cannot be empty");
+        return false;
+    }
+
+    const QByteArray utf8 = trimmed.toUtf8();
+    const bool saved = applyRustPayload(
+        takeRustString(
+            flowjoish_desktop_session_save_workspace(session_, utf8.constData())),
+        true);
+    if (saved) {
+        setWorkspacePath(trimmed);
+    }
+    return saved;
+}
+
+void DesktopController::loadWorkspace() {
+    const QString path = QFileDialog::getOpenFileName(
+        nullptr,
+        tr("Load Workspace"),
+        workspacePath_,
+        tr("Parallax Workspace (*.parallax.json);;JSON Files (*.json);;All Files (*)"));
+    if (!path.isEmpty()) {
+        loadWorkspaceFile(path);
+    }
+}
+
+bool DesktopController::loadWorkspaceFile(const QString &path) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Workspace path cannot be empty");
+        return false;
+    }
+
+    const QByteArray utf8 = trimmed.toUtf8();
+    const bool loaded = applyRustPayload(
+        takeRustString(
+            flowjoish_desktop_session_load_workspace(session_, utf8.constData())),
+        true);
+    if (loaded) {
+        setWorkspacePath(trimmed);
+    }
+    return loaded;
+}
+
+void DesktopController::setCompensationEnabled(bool enabled) {
+    QJsonObject command;
+    const QString sampleId = activeSampleId();
+    command.insert(
+        "kind",
+        QStringLiteral("set_compensation_enabled"));
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("enabled", enabled);
+    dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
+void DesktopController::setChannelTransform(const QString &channel, const QString &kind) {
+    if (channel.trimmed().isEmpty()) {
+        setLastError("Transform channel cannot be empty");
+        return;
+    }
+
+    QJsonObject transform;
+    if (kind == "linear") {
+        transform.insert("kind", "linear");
+    } else if (kind == "signed_log10") {
+        transform.insert("kind", "signed_log10");
+    } else if (kind == "asinh") {
+        transform.insert("kind", "asinh");
+        transform.insert("cofactor", 150.0);
+    } else if (kind == "biexponential") {
+        transform.insert("kind", "biexponential");
+        transform.insert("width_basis", 120.0);
+        transform.insert("positive_decades", 4.5);
+        transform.insert("negative_decades", 1.0);
+    } else if (kind == "logicle") {
+        transform.insert("kind", "logicle");
+        transform.insert("decades", 4.5);
+        transform.insert("linear_width", 12.0);
+    } else {
+        setLastError(QStringLiteral("Unknown transform '%1'").arg(kind));
+        return;
+    }
+
+    QJsonObject command;
+    const QString sampleId = activeSampleId();
+    command.insert("kind", "set_channel_transform");
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("channel", channel);
+    command.insert("transform", transform);
+    dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
+void DesktopController::resetPlotView(const QString &plotId) {
+    if (plotId.trimmed().isEmpty()) {
+        setLastError("Plot id cannot be empty");
+        return;
+    }
+
+    QJsonObject command;
+    const QString sampleId = activeSampleId();
+    command.insert("kind", "reset_plot_view");
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("plot_id", plotId);
+    dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
+void DesktopController::focusPlotOnSelectedPopulation(const QString &plotId) {
+    if (plotId.trimmed().isEmpty()) {
+        setLastError("Plot id cannot be empty");
+        return;
+    }
+
+    QJsonObject command;
+    const QString sampleId = activeSampleId();
+    command.insert("kind", "focus_plot_population");
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("plot_id", plotId);
+    command.insert(
+        "population_id",
+        selectedPopulationKey_.isEmpty() ? QStringLiteral("__all__") : selectedPopulationKey_);
+    command.insert("padding_fraction", 0.08);
+    dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
+void DesktopController::scalePlotView(const QString &plotId, double factor) {
+    if (plotId.trimmed().isEmpty()) {
+        setLastError("Plot id cannot be empty");
+        return;
+    }
+    if (!std::isfinite(factor) || factor <= 0.0) {
+        setLastError("Plot scale factor must be a positive finite number");
+        return;
+    }
+
+    QJsonObject command;
+    const QString sampleId = activeSampleId();
+    command.insert("kind", "scale_plot_view");
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("plot_id", plotId);
+    command.insert("factor", factor);
+    dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
 }
 
 void DesktopController::resetSession() {
@@ -301,6 +574,9 @@ bool DesktopController::applyRustPayload(const QString &payload, bool replaceSna
 }
 
 void DesktopController::rebuildDerivedState() {
+    sample_ = snapshot_.value("sample").toMap();
+    samples_ = snapshot_.value("samples").toList();
+    analysisActions_ = snapshot_.value("analysis_actions").toList();
     commandCount_ = snapshot_.value("command_count").toInt();
     canUndo_ = snapshot_.value("can_undo").toBool();
     canRedo_ = snapshot_.value("can_redo").toBool();
@@ -312,6 +588,11 @@ void DesktopController::rebuildDerivedState() {
     QStringList populationKeys;
     for (const QVariant &value : populations_) {
         populationKeys.push_back(value.toMap().value("key").toString());
+    }
+    const QString nextSampleId = sample_.value("id").toString();
+    if (nextSampleId != selectedSampleId_) {
+        selectedSampleId_ = nextSampleId;
+        emit selectedSampleIdChanged();
     }
     if (!populationKeys.contains(selectedPopulationKey_)) {
         selectedPopulationKey_ = populationKeys.contains("__all__") ? "__all__" : populationKeys.value(0);
@@ -343,21 +624,45 @@ void DesktopController::setLastError(const QString &message) {
     emit lastErrorChanged();
 }
 
+void DesktopController::setWorkspacePath(const QString &path) {
+    if (path == workspacePath_) {
+        return;
+    }
+
+    workspacePath_ = path;
+    emit workspacePathChanged();
+}
+
 QString DesktopController::buildPresetCommandJson(const QString &presetId) const {
     QJsonObject command;
-    command.insert("sample_id", QStringLiteral("desktop-demo"));
+    const QString sampleId = activeSampleId();
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
 
     if (presetId == "lymphocytes") {
+        const QString xChannel = findSampleChannel({"FSC-A", "FSC", "FSC-H"});
+        const QString yChannel = findSampleChannel({"SSC-A", "SSC", "SSC-H"});
+        if (xChannel.isEmpty() || yChannel.isEmpty()) {
+            return QString();
+        }
+
         command.insert("kind", "rectangle_gate");
         command.insert("population_id", "lymphocytes");
         command.insert("parent_population", QJsonValue());
-        command.insert("x_channel", "FSC-A");
-        command.insert("y_channel", "SSC-A");
+        command.insert("x_channel", xChannel);
+        command.insert("y_channel", yChannel);
         command.insert("x_min", 0.0);
         command.insert("x_max", 35.0);
         command.insert("y_min", 0.0);
         command.insert("y_max", 35.0);
     } else if (presetId == "cd3_cd4") {
+        const QString xChannel = findSampleChannel({"CD3"});
+        const QString yChannel = findSampleChannel({"CD4"});
+        if (xChannel.isEmpty() || yChannel.isEmpty()) {
+            return QString();
+        }
+
         QJsonArray vertices;
         vertices.push_back(QJsonObject{{"x", 0.0}, {"y", 7.0}});
         vertices.push_back(QJsonObject{{"x", 6.0}, {"y", 7.0}});
@@ -367,14 +672,29 @@ QString DesktopController::buildPresetCommandJson(const QString &presetId) const
         command.insert("kind", "polygon_gate");
         command.insert("population_id", "cd3_cd4");
         command.insert("parent_population", "lymphocytes");
-        command.insert("x_channel", "CD3");
-        command.insert("y_channel", "CD4");
+        command.insert("x_channel", xChannel);
+        command.insert("y_channel", yChannel);
         command.insert("vertices", vertices);
     } else {
         return QString();
     }
 
     return QString::fromUtf8(QJsonDocument(command).toJson(QJsonDocument::Compact));
+}
+
+bool DesktopController::presetIsAvailable(const QString &presetId) const {
+    if (presetId == "lymphocytes") {
+        return !findSampleChannel({"FSC-A", "FSC", "FSC-H"}).isEmpty()
+            && !findSampleChannel({"SSC-A", "SSC", "SSC-H"}).isEmpty();
+    }
+
+    if (presetId == "cd3_cd4") {
+        return hasPopulation("lymphocytes")
+            && !findSampleChannel({"CD3"}).isEmpty()
+            && !findSampleChannel({"CD4"}).isEmpty();
+    }
+
+    return false;
 }
 
 QVariantMap DesktopController::plotDefinition(const QString &plotId) const {
@@ -396,6 +716,26 @@ QString DesktopController::nextInteractivePopulationId(const QString &plotId) co
     segments.push_back(QStringLiteral("gate"));
     segments.push_back(QString::number(commandCount_ + 1));
     return segments.join(QStringLiteral("_"));
+}
+
+QString DesktopController::activeSampleId() const {
+    const QString sampleId = sample_.value("id").toString();
+    if (!sampleId.isEmpty()) {
+        return sampleId;
+    }
+    return snapshot_.value("sample").toMap().value("id").toString();
+}
+
+QString DesktopController::findSampleChannel(const QStringList &candidates) const {
+    const QVariantList channels = sample_.value("channels").toList();
+    for (const QString &candidate : candidates) {
+        for (const QVariant &value : channels) {
+            if (value.toString().compare(candidate, Qt::CaseInsensitive) == 0) {
+                return value.toString();
+            }
+        }
+    }
+    return QString();
 }
 
 QString DesktopController::sanitizePopulationSegment(const QString &value) {

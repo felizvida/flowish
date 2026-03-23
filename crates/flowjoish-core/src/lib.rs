@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod bitmask;
 pub mod command;
 pub mod gating;
@@ -5,6 +6,10 @@ pub mod hash;
 pub mod json;
 pub mod workspace;
 
+pub use analysis::{
+    AnalysisError, ChannelTransform, CompensationMatrix, SampleAnalysisProfile,
+    apply_sample_analysis,
+};
 pub use bitmask::BitMask;
 pub use command::{Command, CommandLog, CommandRecord};
 pub use gating::{

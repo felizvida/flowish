@@ -1,11 +1,13 @@
 # Parallax Tutorial
 
-This tutorial walks through a complete first session in Parallax using the built-in demo dataset.
+This tutorial walks through a complete first session in Parallax using the bundled demo sample.
 
 By the end, you will:
 
 - create a root rectangle gate
 - create a child polygon gate
+- apply a transform preset
+- refocus a plot on the active population
 - inspect the resulting population hierarchy
 - use undo and redo
 - understand what the command log is tracking
@@ -24,6 +26,8 @@ When Parallax opens, it loads a demo sample with two scatter plots:
 
 - `FSC-A vs SSC-A`
 - `CD3 vs CD4`
+
+If you want to use real files instead, click `Import FCS Files` and choose one or more `.fcs` files. The rest of the interaction model stays the same, but the exact plots and preset availability will depend on the channels in your imported sample.
 
 ## Step 1. Start from All Events
 
@@ -92,7 +96,32 @@ You should now see two ordered entries:
 
 This is the important Parallax idea: your analysis is represented as an ordered, replayable sequence of explicit commands.
 
-## Step 6. Use Undo and Redo
+## Step 6. Apply A Transform Preset
+
+In the `Analysis Settings` panel, change the transform for `CD3` or `CD4`.
+
+Good first choices:
+
+- `Asinh (150)` for a softer compression
+- `Biexponential` or `Logicle` to preview the broader transform families now available in the desktop
+
+Expected result:
+
+- the scatter plot updates immediately
+- the analysis history gains a new transform action
+- the workspace will remember the transform if you save it later
+
+## Step 7. Refocus A Plot
+
+Select your child population in the population list, then click `Focus` above one of the plots.
+
+Expected result:
+
+- the plot range tightens around the selected population
+- the plot subtitle shows a new view summary
+- the workspace will remember this view action
+
+## Step 8. Use Undo and Redo
 
 Click `Undo`.
 
@@ -109,7 +138,9 @@ Expected result:
 - the polygon gate reappears
 - the command count returns to two
 
-## Step 7. Reset the Session
+Note that undo and redo currently apply to gate commands only. Transform and plot-view actions remain explicit session state, but are not yet part of the undo stack.
+
+## Step 9. Reset the Session
 
 Click `Reset Session`.
 
@@ -121,7 +152,7 @@ Expected result:
 
 This gives you a clean slate without restarting the application.
 
-## Step 8. Compare Against the CLI
+## Step 10. Compare Against the CLI
 
 If you want to see the same replay philosophy outside the desktop, run:
 
@@ -134,6 +165,22 @@ That command prints:
 - the command log as canonical JSON
 - the execution hash
 - matched-event counts for the replayed populations
+
+## Step 11. Save The Session
+
+Click `Save Workspace As` if you want to persist the current desktop session.
+
+What gets saved:
+
+- the sample list and active sample
+- the command log for each sample
+- analysis settings such as transforms and parsed compensation
+- plot-view actions such as focus and zoom
+- redo state for each sample
+
+What is required when you reopen it later:
+
+- the original referenced `.fcs` files must still be available at the saved paths
 
 ## What You Learned
 

@@ -6,6 +6,7 @@ Run these before shipping:
 
 ```bash
 cargo test
+python3 -m unittest discover -s tests -p 'test_*.py'
 cmake --build build/desktop-qt
 ```
 
@@ -32,7 +33,9 @@ If the backend fails to start:
 ## Release Checklist
 
 - `cargo test` passes
+- Python regression tests pass
 - desktop build succeeds
+- desktop startup smoke check succeeds
 - docs are updated
 - changelog is current
 - release notes are written
@@ -41,5 +44,6 @@ If the backend fails to start:
 ## Recovery Notes
 
 - Undo and redo in the desktop operate on explicit command state
-- Resetting the desktop session clears the command log and derived populations
-- The current desktop uses a built-in demo dataset, so there is no user file import state to recover in this release
+- Plot-view actions and transform presets are persisted in workspaces and replay after load
+- Resetting the desktop session clears per-sample command logs and derived populations
+- Saved workspaces can restore imported samples and command history, but only if the original source files are still available at the recorded paths

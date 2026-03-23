@@ -26,6 +26,7 @@ name = "flowjoish-desktop-bridge"
 version = "0.1.0"
 dependencies = [
  "flowjoish-core",
+ "flowjoish-fcs",
 ]
 
 [[package]]

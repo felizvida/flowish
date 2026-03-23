@@ -1,0 +1,956 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-03-20",
+  "description": "Authentic public FCS corpus for Parallax real-world parser validation.",
+  "sources": {
+    "fcsparser": {
+      "repo": "https://github.com/eyurtsev/fcsparser",
+      "commit": "da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096",
+      "license": "MIT",
+      "notes": "Real cytometer corpus bundled with fcsparser across multiple vendors and FCS versions."
+    },
+    "flowio": {
+      "repo": "https://github.com/whitews/FlowIO",
+      "commit": "83d28a22d42235c10d17afb017250ee208afed95",
+      "license": "BSD-3-Clause",
+      "notes": "Production-like FCS files used by FlowIO to validate preprocessing, compensation, and vendor-specific parsing."
+    },
+    "flowcal": {
+      "repo": "https://github.com/taborlab/FlowCal",
+      "commit": "0212f417a53b2fc76658d83b751b892f2d05f175",
+      "license": "MIT",
+      "notes": "FlowCal tutorial and parser corpus; examples/readme documents authentic E. coli and calibration bead experiments."
+    }
+  },
+  "datasets": [
+    {
+      "id": "fcsparser-fortessa-pbs-a1",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/Fortessa/FCS_3.0_Fortessa_PBS_Specimen_001_A1_A01.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/Fortessa/FCS_3.0_Fortessa_PBS_Specimen_001_A1_A01.fcs",
+      "provenance": "BD LSRFortessa specimen with SPILL matrix.",
+      "tags": [
+        "authentic",
+        "bd",
+        "fortessa",
+        "fcs3.0",
+        "float",
+        "spill"
+      ],
+      "size_bytes": 512210,
+      "sha256": "fa9011c86e8ad043ab623656646f329aea907e9655e20f94ade97eea4b9dc177",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 11585,
+        "parameter_count": 11,
+        "data_type": "F",
+        "byte_order": "Big",
+        "compensation_dimension": 4,
+        "compensation_source": "SPILL",
+        "metadata_keys": 152
+      }
+    },
+    {
+      "id": "fcsparser-guava-muse",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/GuavaMuse/Guava Muse.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/GuavaMuse/Guava%20Muse.fcs",
+      "provenance": "Guava Muse acquisition with little-endian float payload.",
+      "tags": [
+        "authentic",
+        "guava",
+        "fcs3.0",
+        "float",
+        "little-endian"
+      ],
+      "size_bytes": 8488938,
+      "sha256": "f9b0ca844ecee33c935a6c5e6a7d81c5afe155ce40f0ed663bc51f0d9c98f0e9",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 108,
+        "parameter_count": 10,
+        "data_type": "F",
+        "byte_order": "Little",
+        "metadata_keys": 184
+      }
+    },
+    {
+      "id": "fcsparser-hts-bd-lsr-ii-d6",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/HTS_BD_LSR-II/HTS_BD_LSR_II_Mixed_Specimen_001_D6_D06.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/HTS_BD_LSR-II/HTS_BD_LSR_II_Mixed_Specimen_001_D6_D06.fcs",
+      "provenance": "HTS BD LSR-II mixed specimen.",
+      "tags": [
+        "authentic",
+        "bd",
+        "lsr-ii",
+        "fcs3.0",
+        "float"
+      ],
+      "size_bytes": 659953,
+      "sha256": "47ecbe42cc442449aa2739731c2d32d8dbcca58fbaa135cf30583cca234f9277",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 14945,
+        "parameter_count": 11,
+        "data_type": "F",
+        "byte_order": "Big",
+        "compensation_dimension": 4,
+        "compensation_source": "SPILL",
+        "metadata_keys": 147
+      }
+    },
+    {
+      "id": "fcsparser-facscalibur-hts-a02",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/FACSCaliburHTS/Sample_Well_A02.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/FACSCaliburHTS/Sample_Well_A02.fcs",
+      "provenance": "BD FACSCalibur HTS sample.",
+      "tags": [
+        "authentic",
+        "bd",
+        "facscalibur",
+        "hts",
+        "negative-current-parser"
+      ],
+      "size_bytes": 601136,
+      "sha256": "bf3fb0140c63ca583a01ec5d6af46df1d00f2e2cd6151f5533ab13a7d7f34e27",
+      "expected": {
+        "status": "fail",
+        "error_contains": "invalid utf-8 sequence of 1 bytes from index 13"
+      }
+    },
+    {
+      "id": "fcsparser-cytek-xp5",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/Cytek_xP5/Cytek_xP5.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/Cytek_xP5/Cytek_xP5.fcs",
+      "provenance": "Cytek xP5 file with packed integer records.",
+      "tags": [
+        "authentic",
+        "cytek",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 1043904,
+      "sha256": "dd6aaa9a034c40ab5f3a2ce1ea4c8eab7d00a053426917e07a09f8d8d76ca51a",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 23126,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 81
+      }
+    },
+    {
+      "id": "fcsparser-cyflow-cube-8",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/cyflow_cube_8/cyflow_cube_8.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/cyflow_cube_8/cyflow_cube_8.fcs",
+      "provenance": "CyFlow Cube 8 acquisition.",
+      "tags": [
+        "authentic",
+        "partec",
+        "cyflow",
+        "negative-current-parser"
+      ],
+      "size_bytes": 58393,
+      "sha256": "08b8ef7fc49d34c56543551cc4c16bbf50c85af49d89b3abbe40d6f6a5d6a8d9",
+      "expected": {
+        "status": "fail",
+        "error_contains": "TEXT segment did not terminate cleanly"
+      }
+    },
+    {
+      "id": "fcsparser-facs-diva-test",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/FACS_Diva/facs_diva_test.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/FACS_Diva/facs_diva_test.fcs",
+      "provenance": "FACS Diva export with high event count.",
+      "tags": [
+        "authentic",
+        "bd",
+        "facs-diva",
+        "fcs3.0",
+        "float"
+      ],
+      "size_bytes": 4007061,
+      "sha256": "8d0a72d1d219c880d9120bac0b7501afa23a08b4ecd2b074803e73eaa411802a",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 83411,
+        "parameter_count": 12,
+        "data_type": "F",
+        "byte_order": "Big",
+        "compensation_dimension": 8,
+        "compensation_source": "SPILL",
+        "metadata_keys": 150
+      }
+    },
+    {
+      "id": "fcsparser-miltenyi-fcs2-custom",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS2.0/EY_2013-07-19_PBS_FCS_2.0_Custom_Without_Add_Well_A1.001.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS2.0/EY_2013-07-19_PBS_FCS_2.0_Custom_Without_Add_Well_A1.001.fcs",
+      "provenance": "Miltenyi MACSQuant VYB FCS 2.0 export.",
+      "tags": [
+        "authentic",
+        "miltenyi",
+        "fcs2.0",
+        "float",
+        "little-endian"
+      ],
+      "size_bytes": 643582,
+      "sha256": "28c442794bf920c72cb7c84cdca0e972d5cbace49727ddedde9d717c8b049128",
+      "expected": {
+        "status": "pass",
+        "version": "FCS2.0",
+        "event_count": 10000,
+        "parameter_count": 16,
+        "data_type": "F",
+        "byte_order": "Little",
+        "metadata_keys": 209
+      }
+    },
+    {
+      "id": "fcsparser-miltenyi-fcs3-custom-compatible",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.0/FCS3.0_Custom_Compatible.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.0/FCS3.0_Custom_Compatible.fcs",
+      "provenance": "Miltenyi compatible FCS 3.0 export.",
+      "tags": [
+        "authentic",
+        "miltenyi",
+        "fcs3.0",
+        "float",
+        "little-endian"
+      ],
+      "size_bytes": 641900,
+      "sha256": "9a56d8825ea533356443c3b849bef82c6027ca3b4eea9e52a4b74e2be25219ff",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 10000,
+        "parameter_count": 16,
+        "data_type": "F",
+        "byte_order": "Little",
+        "metadata_keys": 118
+      }
+    },
+    {
+      "id": "fcsparser-miltenyi-fcs31-custom-without-add",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.1/EY_2013-07-19_PBS_FCS_3.1_Custom_Without_Add_Well_A1.001.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.1/EY_2013-07-19_PBS_FCS_3.1_Custom_Without_Add_Well_A1.001.fcs",
+      "provenance": "Miltenyi FCS 3.1 custom export without add keyword.",
+      "tags": [
+        "authentic",
+        "miltenyi",
+        "fcs3.1",
+        "negative-current-parser"
+      ],
+      "size_bytes": 762767,
+      "sha256": "986a95927a946e11cc15528d80fca891e26aa884509b1f50a04414508dc38516",
+      "expected": {
+        "status": "fail",
+        "error_contains": "TEXT segment did not terminate cleanly"
+      }
+    },
+    {
+      "id": "fcsparser-miltenyi-fcs31-custom-add",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.1/EY_2013-07-19_PBS_FCS_3.1_Custom_Add_Well_A1.001.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.1/EY_2013-07-19_PBS_FCS_3.1_Custom_Add_Well_A1.001.fcs",
+      "provenance": "Miltenyi FCS 3.1 custom export with add keyword.",
+      "tags": [
+        "authentic",
+        "miltenyi",
+        "fcs3.1",
+        "negative-current-parser"
+      ],
+      "size_bytes": 887703,
+      "sha256": "4b79ab8f5fb252de71034136c788a06cf3baf25f7f5c7e6101a97ecb22c0190c",
+      "expected": {
+        "status": "fail",
+        "error_contains": "TEXT segment did not terminate cleanly"
+      }
+    },
+    {
+      "id": "fcsparser-miltenyi-fcs31-standard",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.1/EY_2013-07-19_PBS_FCS_3.1_Well_A1.001.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.1/EY_2013-07-19_PBS_FCS_3.1_Well_A1.001.fcs",
+      "provenance": "Miltenyi FCS 3.1 standard export.",
+      "tags": [
+        "authentic",
+        "miltenyi",
+        "fcs3.1",
+        "negative-current-parser"
+      ],
+      "size_bytes": 887613,
+      "sha256": "8cfedc08f387a53cd492c98b5150c3a85ad704499aec07190de5bb249897598e",
+      "expected": {
+        "status": "fail",
+        "error_contains": "TEXT segment did not terminate cleanly"
+      }
+    },
+    {
+      "id": "fcsparser-miltenyi-duplicate-names",
+      "source": "fcsparser",
+      "relative_path": "fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.1/SG_2014-09-26_Duplicate_Names.fcs",
+      "download_url": "https://raw.githubusercontent.com/eyurtsev/fcsparser/da70aaa7ec92ff3bd9ce00aec4eea7c77ee8c096/fcsparser/tests/data/FlowCytometers/MiltenyiBiotec/FCS3.1/SG_2014-09-26_Duplicate_Names.fcs",
+      "provenance": "Miltenyi FCS 3.1 file with duplicate channel names.",
+      "tags": [
+        "authentic",
+        "miltenyi",
+        "fcs3.1",
+        "duplicate-channels",
+        "negative-current-parser"
+      ],
+      "size_bytes": 294908,
+      "sha256": "7ee7e214e54161ebea46aea860ef6c050dfdb1e093cd1d97684fbfd4bcb87cc4",
+      "expected": {
+        "status": "fail",
+        "error_contains": "TEXT segment did not terminate cleanly"
+      }
+    },
+    {
+      "id": "flowio-100715",
+      "source": "flowio",
+      "relative_path": "data/fcs_files/100715.fcs",
+      "download_url": "https://raw.githubusercontent.com/whitews/FlowIO/83d28a22d42235c10d17afb017250ee208afed95/data/fcs_files/100715.fcs",
+      "provenance": "FlowIO sample with SPILL keyword and float payload.",
+      "tags": [
+        "authentic",
+        "flowio",
+        "fcs2.0",
+        "float",
+        "spill"
+      ],
+      "size_bytes": 4166144,
+      "sha256": "733b0f6d959527116860f4c78f0908db33fc71388c7717737b340c100b9f46e7",
+      "expected": {
+        "status": "pass",
+        "version": "FCS2.0",
+        "event_count": 65016,
+        "parameter_count": 16,
+        "data_type": "F",
+        "byte_order": "Big",
+        "compensation_dimension": 13,
+        "compensation_source": "SPILL",
+        "metadata_keys": 201
+      }
+    },
+    {
+      "id": "flowio-3fitc-4pe-004",
+      "source": "flowio",
+      "relative_path": "data/fcs_files/3FITC_4PE_004.fcs",
+      "download_url": "https://raw.githubusercontent.com/whitews/FlowIO/83d28a22d42235c10d17afb017250ee208afed95/data/fcs_files/3FITC_4PE_004.fcs",
+      "provenance": "FlowIO real-world compensation sample.",
+      "tags": [
+        "authentic",
+        "flowio",
+        "negative-current-parser"
+      ],
+      "size_bytes": 757929,
+      "sha256": "240e76eba7e04c7e9116c8c3ad8388ccb2faf58105d21b831d122764a3621e53",
+      "expected": {
+        "status": "fail",
+        "error_contains": "invalid utf-8 sequence of 1 bytes from index 9"
+      }
+    },
+    {
+      "id": "flowio-b01-kc-a-w-91-us",
+      "source": "flowio",
+      "relative_path": "data/fcs_files/B01 KC-A-W---91-US.fcs",
+      "download_url": "https://raw.githubusercontent.com/whitews/FlowIO/83d28a22d42235c10d17afb017250ee208afed95/data/fcs_files/B01%20KC-A-W---91-US.fcs",
+      "provenance": "FlowIO sample with $SPILLOVER and preprocessing truth data.",
+      "tags": [
+        "authentic",
+        "flowio",
+        "fcs3.1",
+        "integer",
+        "spillover"
+      ],
+      "size_bytes": 93402,
+      "sha256": "33736fb7a40a4f571837c231d342df5fd4b20b5dd70439b74b3610f94b6c2a36",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.1",
+        "event_count": 1589,
+        "parameter_count": 14,
+        "data_type": "I",
+        "byte_order": "Big",
+        "compensation_dimension": 8,
+        "compensation_source": "$SPILLOVER",
+        "metadata_keys": 214
+      }
+    },
+    {
+      "id": "flowio-g11",
+      "source": "flowio",
+      "relative_path": "data/fcs_files/G11.fcs",
+      "download_url": "https://raw.githubusercontent.com/whitews/FlowIO/83d28a22d42235c10d17afb017250ee208afed95/data/fcs_files/G11.fcs",
+      "provenance": "Attune-derived float FCS file used by FlowIO.",
+      "tags": [
+        "authentic",
+        "attune",
+        "negative-current-parser"
+      ],
+      "size_bytes": 285872,
+      "sha256": "40ed9f6d4293a87077cab07a34c68b2497d4d69988adcb64a5f718098f48b56f",
+      "expected": {
+        "status": "fail",
+        "error_contains": "TEXT segment did not terminate cleanly"
+      }
+    },
+    {
+      "id": "flowio-data1",
+      "source": "flowio",
+      "relative_path": "data/fcs_files/data1.fcs",
+      "download_url": "https://raw.githubusercontent.com/whitews/FlowIO/83d28a22d42235c10d17afb017250ee208afed95/data/fcs_files/data1.fcs",
+      "provenance": "FlowIO sample with non-1.0 gain and non-linear storage.",
+      "tags": [
+        "authentic",
+        "flowio",
+        "negative-current-parser"
+      ],
+      "size_bytes": 216432,
+      "sha256": "cba7812f5bbce700786d22d97cf9858c1301878aa840c64eadcd263a3a0a5508",
+      "expected": {
+        "status": "fail",
+        "error_contains": "invalid utf-8 sequence of 1 bytes from index 9"
+      }
+    },
+    {
+      "id": "flowio-zero-gain-m0-wm278-s1",
+      "source": "flowio",
+      "relative_path": "data/fcs_files/zero_gain/M0_WM278_S1.fcs",
+      "download_url": "https://raw.githubusercontent.com/whitews/FlowIO/83d28a22d42235c10d17afb017250ee208afed95/data/fcs_files/zero_gain/M0_WM278_S1.fcs",
+      "provenance": "Zero-gain production file used to validate preprocessing rules.",
+      "tags": [
+        "authentic",
+        "flowio",
+        "fcs3.1",
+        "integer",
+        "little-endian"
+      ],
+      "size_bytes": 13499572,
+      "sha256": "f9e528334b63fe2f879f06164159a0e1ef5daa0c6e4e253f03c92ad030d6822f",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.1",
+        "event_count": 159190,
+        "parameter_count": 21,
+        "data_type": "I",
+        "byte_order": "Little",
+        "compensation_dimension": 4,
+        "compensation_source": "$SPILLOVER",
+        "metadata_keys": 148
+      }
+    },
+    {
+      "id": "flowcal-data001",
+      "source": "flowcal",
+      "relative_path": "test/Data001.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/test/Data001.fcs",
+      "provenance": "FlowCal parser corpus FCS 2.0 file.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "fcs2.0",
+        "negative-current-parser"
+      ],
+      "size_bytes": 253436,
+      "sha256": "d0519746be250c462d4c8f0e96dc50429cfb0244e09684206726fd82d46b5039",
+      "expected": {
+        "status": "fail",
+        "error_contains": "invalid utf-8 sequence of 1 bytes from index 13"
+      }
+    },
+    {
+      "id": "flowcal-data002",
+      "source": "flowcal",
+      "relative_path": "test/Data002.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/test/Data002.fcs",
+      "provenance": "FlowCal parser corpus FCS 2.0 file.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "fcs2.0",
+        "integer"
+      ],
+      "size_bytes": 361665,
+      "sha256": "78324d3ecdb43f283b20e7844515b7895baef67aac73410e40c79276a7bf88e9",
+      "expected": {
+        "status": "pass",
+        "version": "FCS2.0",
+        "event_count": 20000,
+        "parameter_count": 9,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 100
+      }
+    },
+    {
+      "id": "flowcal-data003",
+      "source": "flowcal",
+      "relative_path": "test/Data003.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/test/Data003.fcs",
+      "provenance": "FlowCal parser corpus FCS 3.0 file.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 604096,
+      "sha256": "f7612cfb4d97ca2a6cda9ed0cc9f93c8e31e96f8a90ddea74819cb9fc09cd636",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 25000,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-data004",
+      "source": "flowcal",
+      "relative_path": "test/Data004.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/test/Data004.fcs",
+      "provenance": "FlowCal parser corpus FCS 3.0 float file.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "fcs3.0",
+        "float"
+      ],
+      "size_bytes": 2802483,
+      "sha256": "093c5c7abcfc8558ea30da56773656bcf61860eea003f20ec18ed3e4408cf565",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 50000,
+        "parameter_count": 14,
+        "data_type": "F",
+        "byte_order": "Big",
+        "compensation_dimension": 3,
+        "compensation_source": "SPILL",
+        "metadata_keys": 172
+      }
+    },
+    {
+      "id": "flowcal-data005",
+      "source": "flowcal",
+      "relative_path": "test/Data005.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/test/Data005.fcs",
+      "provenance": "FlowCal parser corpus wide-parameter FCS 3.0 float file.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "fcs3.0",
+        "float",
+        "wide-panel"
+      ],
+      "size_bytes": 17210118,
+      "sha256": "78efefcaccc2a4d477ff8384a7050750cb4ad2ca9524e040904b93847ee1d986",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 62337,
+        "parameter_count": 69,
+        "data_type": "F",
+        "byte_order": "Big",
+        "metadata_keys": 433
+      }
+    },
+    {
+      "id": "flowcal-example-sample001-beads",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample001.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample001.fcs",
+      "provenance": "FlowCal calibration beads sample from the documented E. coli tutorial experiment.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "beads",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 796672,
+      "sha256": "f0794d5d0b0ff2936e4008baad42b00214904a0ba26b3d59d60b84162ff34c52",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 33024,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample006",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample006.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample006.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 006.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 777472,
+      "sha256": "e4f516561794f5e2b769cf8a704caeef81e808325bbaff4e8ecda3f72944f23b",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 32224,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample007",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample007.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample007.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 007.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 767008,
+      "sha256": "39a4523c4b6ba9e3bca9272745d32e98913873c2ae17033ee8ba15e06b717a8d",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 31788,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample008",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample008.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample008.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 008.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 770320,
+      "sha256": "17f174978887cd34ed20e7b3dc613bc9d3e034948396a6f99345368388d9cf0b",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 31926,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample009",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample009.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample009.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 009.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 774136,
+      "sha256": "974be9a5774d8b8b0a86241253e544f76aaf589d86d74902ea7d0cf6636504b2",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 32085,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample010",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample010.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample010.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 010.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 771880,
+      "sha256": "a56993907a92567579e57994d1951330a4cc6c845ffa6561ac22b722a80d4d43",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 31991,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample011",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample011.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample011.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 011.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 764080,
+      "sha256": "399bde8110057d6bad5fef603bda8152e4b71d10c7abfb9c8a50aff4e05ae08d",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 31666,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample012",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample012.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample012.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 012.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 758872,
+      "sha256": "6d0a55b8f5cd55f3149fbefc5fdd1a6a002d581194ba1e671f692796ca1e141e",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 31449,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample013",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample013.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample013.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 013.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 765736,
+      "sha256": "3b4815c648291d37af0ecc3806062658dfc958432fa971d02cedd899f8e70ebe",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 31735,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample014",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample014.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample014.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 014.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 770008,
+      "sha256": "a5189efc3e39fdc30fd0d8354a47766acf3b9c3955c43b33b23c25bd8d40338e",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 31913,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-sample015",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/sample015.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/sample015.fcs",
+      "provenance": "FlowCal E. coli sfGFP tutorial sample 015.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 786952,
+      "sha256": "e170ee3da3b8ffd98f87b080d2e5fdf68cc9ab0e576eb400640e8f3df5d288d2",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 32619,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-min-sample001-beads",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/min/sample001.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/min/sample001.fcs",
+      "provenance": "FlowCal minimum-control calibration beads sample.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "beads",
+        "control",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 797296,
+      "sha256": "e50fc1c33880be5f096454765ece49bdefbedd0eb176f0b5be5ab98c304b003b",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 33050,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-min-sample004",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/min/sample004.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/min/sample004.fcs",
+      "provenance": "FlowCal minimum-control E. coli sample.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "control",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 768952,
+      "sha256": "5d084aa1a2eac27a95b2166f692a4d187c5787b443a464fcccfdac200abe0d3f",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 31869,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-max-sample002-beads",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/max/sample002.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/max/sample002.fcs",
+      "provenance": "FlowCal maximum-control calibration beads sample.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "beads",
+        "control",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 801448,
+      "sha256": "7f5e970121e198cc3ea764352603d1170906699b383c5d7ee7be4663fe9067e8",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 33223,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    },
+    {
+      "id": "flowcal-example-max-sample008",
+      "source": "flowcal",
+      "relative_path": "examples/FCFiles/max/sample008.fcs",
+      "download_url": "https://raw.githubusercontent.com/taborlab/FlowCal/0212f417a53b2fc76658d83b751b892f2d05f175/examples/FCFiles/max/sample008.fcs",
+      "provenance": "FlowCal maximum-control E. coli sample.",
+      "tags": [
+        "authentic",
+        "flowcal",
+        "e-coli",
+        "control",
+        "fcs3.0",
+        "integer"
+      ],
+      "size_bytes": 775696,
+      "sha256": "238a84002e8eb3c192632707a56c965189a92ad73214cc4a9b568eaae04ac7bd",
+      "expected": {
+        "status": "pass",
+        "version": "FCS3.0",
+        "event_count": 32150,
+        "parameter_count": 8,
+        "data_type": "I",
+        "byte_order": "Big",
+        "metadata_keys": 75
+      }
+    }
+  ]
+}

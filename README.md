@@ -8,7 +8,7 @@
 
 Parallax is a local-first cytometry workstation built around one shared Rust engine, an explicit command log, and a native Qt/QML desktop. It is designed for teams who care about speed, deterministic results, and a clean handoff between interactive desktop work and reproducible execution.
 
-Today, Parallax is an early but real workstation shell. You can launch the desktop, work against a built-in demo dataset, author rectangle and polygon gates directly on linked scatter plots, inspect the command log, and undo or redo analysis actions through the same replayable state model.
+Today, Parallax is an early but real workstation shell. You can launch the desktop, start from the bundled demo sample or import one or many `.fcs` files, switch between samples inside one local session, author rectangle and polygon gates directly on linked scatter plots, apply replayable compensation and transform settings, adjust plot views through explicit view actions, inspect the command log, and undo or redo gate actions through the same replayable state model.
 
 ## Why Parallax
 
@@ -23,9 +23,11 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - [Quick Start](docs/QUICKSTART.md)
 - [User Guide](docs/USER_GUIDE.md)
 - [Tutorial](docs/TUTORIAL.md)
+- [Must-Have Feature Matrix](docs/MUST_HAVE_FEATURE_MATRIX.md)
+- [Real-World Testing](docs/REAL_WORLD_TESTING.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
 - [Operations Guide](docs/OPERATIONS.md)
-- [Release Notes](docs/releases/v0.1.2.md)
+- [Release Notes](docs/releases/v0.2.0.md)
 - [Architecture Decision Record](docs/architecture/adr-0001-rust-qt-rust-backend.md)
 
 ## Current Capabilities
@@ -33,15 +35,21 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Deterministic gating and replay in a shared Rust core
 - FCS parsing crate for ingestion and metadata inspection
 - Qt/QML desktop with live rectangle and polygon gate authoring
+- Desktop FCS import and multi-sample switching in one local session
+- Workspace save/load that reopens sessions from sample sources plus replayable command history
+- Parsed FCS compensation toggle plus per-channel linear, signed-log10, asinh, biexponential, and logicle transform presets
+- Replayable plot-view controls for auto extents, focus-on-population, and zoom in/out
 - Command log with undo and redo
 - Rust backend stub for parity-focused service surfaces
 - CLI tools for FCS inspection and replay demos
 
 ## Current Limits
 
-- The desktop currently opens with a built-in demo dataset instead of a full import flow
-- Gate editing handles, pan/zoom, and saved workspaces are not implemented yet
-- Cloud sync, jobs, reporting, and AI assistance are future phases
+- Batch templates and cross-sample comparison workflows are not implemented yet
+- Workspace persistence is source-path based today; bundled raw-data snapshots and derived caches are not implemented yet
+- Compensation override editing, density or histogram plots, and reference-matched transform tuning are not implemented yet
+- Gate editing handles, pan/zoom, and reporting export are not implemented yet
+- Cloud sync, jobs, and AI assistance are future phases
 
 ## Repository Layout
 
@@ -72,6 +80,21 @@ Describe the backend surface:
 
 ```bash
 cargo run -p flowjoish-backend -- describe
+```
+
+Hydrate and run the authentic public FCS suite:
+
+```bash
+python3 scripts/real_world_fcs_suite.py
+```
+
+Reuse local source checkouts when you already have them:
+
+```bash
+python3 scripts/real_world_fcs_suite.py \
+  --source-root fcsparser=/tmp/fcsparser \
+  --source-root flowio=/tmp/flowio \
+  --source-root flowcal=/tmp/flowcal
 ```
 
 ## Community

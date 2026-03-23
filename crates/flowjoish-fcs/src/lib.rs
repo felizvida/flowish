@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
+pub use flowjoish_core::CompensationMatrix;
 use flowjoish_core::SampleFrame;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,14 +23,6 @@ pub struct FcsChannel {
     pub long_name: Option<String>,
     pub bits: Option<u32>,
     pub range: Option<u64>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct CompensationMatrix {
-    pub source_key: String,
-    pub dimension: usize,
-    pub parameter_names: Vec<String>,
-    pub values: Vec<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

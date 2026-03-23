@@ -19,8 +19,8 @@ if(NOT CMAKE_PREFIX_PATH)
     endif()
 endif()
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Widgets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Widgets)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(FLOWJOISH_RUST_PROFILE release)
@@ -60,5 +60,6 @@ target_link_libraries(flowjoish-desktop PRIVATE
     Qt${QT_VERSION_MAJOR}::Qml
     Qt${QT_VERSION_MAJOR}::Quick
     Qt${QT_VERSION_MAJOR}::QuickControls2
+    Qt${QT_VERSION_MAJOR}::Widgets
     "${FLOWJOISH_RUST_LIB}"
 )

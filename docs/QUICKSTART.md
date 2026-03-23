@@ -6,7 +6,7 @@ This quick start gets you from clone to a running Parallax desktop session as qu
 
 - Rust toolchain with `cargo`
 - CMake 3.24+
-- Qt 5 or Qt 6 with `Core`, `Gui`, `Qml`, `Quick`, and `QuickControls2`
+- Qt 5 or Qt 6 with `Core`, `Gui`, `Qml`, `Quick`, `QuickControls2`, and `Widgets`
 - `qmake` on your `PATH`, or a known Qt installation prefix
 
 ## 1. Verify the workspace
@@ -51,7 +51,18 @@ build/desktop-qt/flowjoish-desktop
 ./build/desktop-qt/flowjoish-desktop
 ```
 
-When the window opens, Parallax loads a built-in demo dataset so you can exercise gating immediately.
+When the window opens, Parallax loads a built-in demo sample so you can exercise gating immediately.
+
+To work with real data:
+
+- click `Import FCS Files`
+- choose one or more `.fcs` files
+- use the sample list in the left rail to switch between imported samples
+- if the sample includes a parsed spillover matrix, use `Apply Parsed Compensation`
+- use the channel transform controls to switch between `Linear`, `Signed Log10`, `Asinh (150)`, `Biexponential`, and `Logicle`
+- use the `Auto`, `Focus`, `Zoom In`, and `Zoom Out` controls above each plot to adjust plot extents through replayable view actions
+- use `Save Workspace As` to persist the current local session
+- use `Load Workspace` to reopen a saved session later, as long as the referenced source files are still available
 
 ## 5. Optional backend and CLI checks
 
@@ -82,8 +93,11 @@ cargo run -p flowjoish-cli -- inspect-fcs /path/to/file.fcs
 ## What You Should See
 
 - A Parallax desktop window with two scatter plots
+- A sample list with the active sample highlighted
 - A populations list with `All Events`
 - A command log panel
+- Analysis settings for compensation and transforms
+- Plot view controls for focus and zoom
 - Rectangle and polygon gating tools
 - Undo, redo, and reset controls
 

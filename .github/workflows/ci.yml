@@ -22,6 +22,9 @@ jobs:
       - name: Run test suite
         run: cargo test
 
+      - name: Run Python test suite
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+
   desktop-build:
     runs-on: ubuntu-latest
     steps:

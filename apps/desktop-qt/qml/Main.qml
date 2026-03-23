@@ -15,6 +15,30 @@ ApplicationWindow {
     property var plotB: desktopController.plots.length > 1 ? desktopController.plots[1] : ({})
     property string activeGateTool: "rectangle"
 
+    function transformIndex(kind) {
+        if (kind === "signed_log10")
+            return 1
+        if (kind === "asinh")
+            return 2
+        if (kind === "biexponential")
+            return 3
+        if (kind === "logicle")
+            return 4
+        return 0
+    }
+
+    function transformKindAt(index) {
+        if (index === 1)
+            return "signed_log10"
+        if (index === 2)
+            return "asinh"
+        if (index === 3)
+            return "biexponential"
+        if (index === 4)
+            return "logicle"
+        return "linear"
+    }
+
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
@@ -74,6 +98,18 @@ ApplicationWindow {
                     }
 
                     Text {
+                        text: "Sample " + (desktopController.sample.display_name || "Demo Sample")
+                        color: "#d6e6dc"
+                        font.pixelSize: 14
+                    }
+
+                    Text {
+                        text: "Events " + (desktopController.sample.event_count || 0)
+                        color: "#d6e6dc"
+                        font.pixelSize: 14
+                    }
+
+                    Text {
                         text: "Commands " + desktopController.commandCount
                         color: "#d6e6dc"
                         font.pixelSize: 14
@@ -122,6 +158,169 @@ ApplicationWindow {
                             spacing: 10
 
                             Text {
+                                text: "Samples"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            Button {
+                                text: "Import FCS Files"
+                                onClicked: desktopController.importFcsFiles()
+                            }
+
+                            Row {
+                                spacing: 10
+
+                                Button {
+                                    text: "Load Workspace"
+                                    onClicked: desktopController.loadWorkspace()
+                                }
+
+                                Button {
+                                    text: "Save Workspace As"
+                                    onClicked: desktopController.saveWorkspaceAs()
+                                }
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: desktopController.samples.length > 1
+                                      ? "Switch between imported samples without leaving the local Rust session."
+                                      : "Import one or more FCS files to replace the demo sample with a multi-sample session."
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: desktopController.workspacePath === ""
+                                      ? "Workspace: not saved yet"
+                                      : "Workspace: " + desktopController.workspacePath
+                                color: "#8a7354"
+                                font.pixelSize: 12
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Repeater {
+                                model: desktopController.samples
+
+                                delegate: Rectangle {
+                                    width: parent.width
+                                    radius: 14
+                                    color: modelData.id === desktopController.selectedSampleId
+                                           ? "#dfe8e2"
+                                           : "#f6efe1"
+                                    border.width: 1
+                                    border.color: modelData.id === desktopController.selectedSampleId
+                                                  ? "#6f8a7b"
+                                                  : "#dcc8a0"
+                                    implicitHeight: 76
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: desktopController.selectedSampleId = modelData.id
+                                    }
+
+                                    Column {
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 4
+
+                                        Text {
+                                            text: modelData.display_name
+                                            color: "#2e2216"
+                                            font.pixelSize: 16
+                                            font.weight: Font.DemiBold
+                                        }
+
+                                        Text {
+                                            text: (modelData.event_count || 0) + " events • "
+                                                  + (modelData.channel_count || 0) + " channels"
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: modelData.source_path || modelData.id
+                                            color: "#8a7354"
+                                            font.pixelSize: 12
+                                            elide: Text.ElideLeft
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 10
+
+                            Text {
+                                text: "Analysis Settings"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            CheckBox {
+                                text: desktopController.sample.compensation_available
+                                      ? "Apply Parsed Compensation"
+                                      : "No Compensation Matrix In Sample"
+                                enabled: desktopController.sample.compensation_available || false
+                                checked: desktopController.sample.compensation_enabled || false
+                                onClicked: desktopController.setCompensationEnabled(checked)
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: desktopController.sample.compensation_source_key
+                                      ? "Source: " + desktopController.sample.compensation_source_key
+                                      : "Transforms and compensation are replayed before every gate redraw."
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Repeater {
+                                model: desktopController.sample.channel_transforms || []
+
+                                delegate: Row {
+                                    width: parent.width
+                                    spacing: 10
+
+                                    Text {
+                                        width: 120
+                                        text: modelData.channel
+                                        color: "#2e2216"
+                                        font.pixelSize: 13
+                                        elide: Text.ElideRight
+                                    }
+
+                                    ComboBox {
+                                        model: [
+                                            "Linear",
+                                            "Signed Log10",
+                                            "Asinh (150)",
+                                            "Biexponential",
+                                            "Logicle"
+                                        ]
+                                        currentIndex: window.transformIndex(modelData.kind || "linear")
+                                        onActivated: desktopController.setChannelTransform(
+                                                         modelData.channel,
+                                                         window.transformKindAt(currentIndex))
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 10
+
+                            Text {
                                 text: "Command Presets"
                                 color: "#2e2216"
                                 font.pixelSize: 22
@@ -133,6 +332,7 @@ ApplicationWindow {
                                       ? "Lymphocyte Gate Added"
                                       : "Add Lymphocyte Gate"
                                 enabled: !desktopController.hasPopulation("lymphocytes")
+                                         && desktopController.canApplyPreset("lymphocytes")
                                 onClicked: desktopController.applyPresetCommand("lymphocytes")
                             }
 
@@ -142,6 +342,7 @@ ApplicationWindow {
                                       : "Add CD3/CD4 Gate"
                                 enabled: !desktopController.hasPopulation("cd3_cd4")
                                          && desktopController.hasPopulation("lymphocytes")
+                                         && desktopController.canApplyPreset("cd3_cd4")
                                 onClicked: desktopController.applyPresetCommand("cd3_cd4")
                             }
 
@@ -192,6 +393,60 @@ ApplicationWindow {
                                 color: "#6d5941"
                                 font.pixelSize: 13
                                 wrapMode: Text.WordWrap
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: desktopController.sample.source_path
+                                      ? "Active file: " + desktopController.sample.source_path
+                                      : "Active file: bundled desktop demo sample"
+                                color: "#8a7354"
+                                font.pixelSize: 12
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 10
+
+                            Text {
+                                text: "Analysis History"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            Repeater {
+                                model: desktopController.analysisActions
+
+                                delegate: Rectangle {
+                                    width: parent.width
+                                    radius: 12
+                                    color: "#eef3f0"
+                                    border.width: 1
+                                    border.color: "#bfd0c5"
+                                    implicitHeight: 58
+
+                                    Column {
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 4
+
+                                        Text {
+                                            text: modelData.sequence + ". " + modelData.kind
+                                            color: "#214034"
+                                            font.pixelSize: 15
+                                            font.weight: Font.Medium
+                                        }
+
+                                        Text {
+                                            text: modelData.summary || ""
+                                            color: "#51685c"
+                                            font.pixelSize: 13
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -371,6 +626,39 @@ ApplicationWindow {
                             font.pixelSize: 14
                         }
 
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Button {
+                                text: "Auto"
+                                onClicked: desktopController.resetPlotView(plotA.id || "")
+                            }
+
+                            Button {
+                                text: "Focus"
+                                onClicked: desktopController.focusPlotOnSelectedPopulation(plotA.id || "")
+                            }
+
+                            Button {
+                                text: "Zoom In"
+                                onClicked: desktopController.scalePlotView(plotA.id || "", 0.7)
+                            }
+
+                            Button {
+                                text: "Zoom Out"
+                                onClicked: desktopController.scalePlotView(plotA.id || "", 1.4)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: plotA.view_summary || "Auto extents"
+                                color: "#8b6a3c"
+                                font.pixelSize: 13
+                            }
+                        }
+
                         Text {
                             text: window.activeGateTool === "rectangle"
                                   ? "Drag to author a rectangle gate on this projection"
@@ -452,6 +740,39 @@ ApplicationWindow {
                             text: (plotB.x_channel || "x") + " vs " + (plotB.y_channel || "y")
                             color: "#6d5941"
                             font.pixelSize: 14
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Button {
+                                text: "Auto"
+                                onClicked: desktopController.resetPlotView(plotB.id || "")
+                            }
+
+                            Button {
+                                text: "Focus"
+                                onClicked: desktopController.focusPlotOnSelectedPopulation(plotB.id || "")
+                            }
+
+                            Button {
+                                text: "Zoom In"
+                                onClicked: desktopController.scalePlotView(plotB.id || "", 0.7)
+                            }
+
+                            Button {
+                                text: "Zoom Out"
+                                onClicked: desktopController.scalePlotView(plotB.id || "", 1.4)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: plotB.view_summary || "Auto extents"
+                                color: "#8b6a3c"
+                                font.pixelSize: 13
+                            }
                         }
 
                         Text {

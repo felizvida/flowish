@@ -1,3 +1,6 @@
 /target
 /build
 /.DS_Store
+/testdata/.cache/
+__pycache__/
+*.pyc
