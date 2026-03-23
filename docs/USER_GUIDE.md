@@ -22,21 +22,28 @@ When you launch Parallax, the window is split into two main regions.
 The left rail contains:
 
 - Sample import and sample switching
+- Stats export for the active sample
+- Batch template application and grouped stats export
+- Derived metric configuration and derived-metric export
 - Command presets for compatible samples
 - Tool selection for rectangle or polygon gating
 - Undo, redo, and reset controls
 - The population list
+- The selected population stats panel
 - The command log
 - Bridge feedback and error reporting
 
 ### Main analysis area
 
-The main area contains two linked scatter plots:
+The main area contains multiple linked plot panels. In the bundled demo sample, that means:
 
 - `FSC-A vs SSC-A`
 - `CD3 vs CD4`
+- a histogram panel for the first non-structural analysis channel
 
-The selected population controls which events are highlighted across both plots.
+For imported samples, the exact plot set depends on the available channels. Parallax prefers two scatter projections when possible, then adds a histogram for a meaningful non-structural channel.
+
+The selected population controls which events are highlighted across every plot.
 
 ## Samples And Session State
 
@@ -90,6 +97,19 @@ How they behave:
 - if a focused population disappears because a gate is undone, the plot falls back to auto extents instead of breaking the session
 - gate undo and redo do not remove plot-view actions in the current desktop
 
+## Histogram View
+
+Parallax now includes a native histogram panel alongside its scatter projections.
+
+How it behaves today:
+
+- histograms are computed in Rust from the same replayed sample state as gating and scatter plots
+- the active population highlights its own per-bin counts on top of the full distribution
+- the histogram responds to `Auto`, `Focus`, `Zoom In`, and `Zoom Out` like the scatter plots
+- histogram panels are read-only today and do not accept gate drawing gestures
+
+Parallax currently chooses the histogram channel automatically, preferring a non-time, non-structural analysis channel such as a fluorescence marker when available.
+
 ## Populations and Parenting
 
 Parallax always treats the currently selected population as the parent for the next gate you create.
@@ -98,6 +118,79 @@ Parallax always treats the currently selected population as the parent for the n
 - If a child population is selected, the new gate becomes a child of that population
 
 After a successful gate creation, Parallax automatically selects the newly created population so you can continue refining the hierarchy.
+
+## Population Stats
+
+Parallax now computes a stats summary for `All Events` and every replayed population in the active sample.
+
+What you can inspect today:
+
+- matched-event count
+- frequency of all events
+- frequency of the selected population's parent
+- per-channel mean
+- per-channel median
+
+How it behaves:
+
+- stats are computed in Rust from the same processed sample used for gating and plotting
+- the left-rail stats panel follows the currently selected population
+- stats update immediately when gates, transforms, or compensation settings change
+- `Export Stats CSV` writes the active sample's full population stats table to disk
+
+## Derived Metrics
+
+Parallax now includes a small replayable formula layer for the currently selected population.
+
+What you can configure today:
+
+- `Positive Fraction`: fraction of matched events with one channel at or above a threshold
+- `Mean Ratio`: mean of one channel divided by the mean of another channel
+
+How it behaves:
+
+- the active derived metric is stored in the Rust session and saved with the workspace
+- metric evaluation uses the same processed sample state as gating, transforms, compensation, and stats
+- the selected population comparison shows the per-sample metric value and delta versus the active sample
+- the cohort summary shows the cohort-level mean of that metric and delta versus the active cohort
+- if a sample is missing the selected population or the configured channel, Parallax reports that explicitly instead of fabricating a value
+- `Export Derived Metric CSV` writes the selected population's per-sample derived-metric table to disk
+
+Current limit:
+
+- derived metrics are limited to the two built-in formulas above; there is no free-form expression editor yet
+
+## Batch Workflows
+
+Parallax now includes an early batch workflow for loaded multi-sample sessions.
+
+What it can do today:
+
+- apply the active sample's gate command log as a template to the other loaded samples
+- assign a persisted cohort label to each loaded sample
+- evaluate one shared derived metric across that selected population in every loaded sample
+- compare the currently selected population across every loaded sample
+- aggregate that comparison by cohort label into grouped summaries
+- export only that selected population comparison as CSV
+- export only that selected population's derived-metric table as CSV
+- export only the grouped cohort summary as CSV
+- export grouped population stats across all loaded samples as CSV
+
+How it behaves:
+
+- batch template application validates the full gate log against every target sample before changing anything
+- applying the template replaces gate history on the other loaded samples and clears their redo/view state
+- each target sample keeps its own analysis settings such as transforms and parsed compensation
+- cohort labels are saved in the workspace and travel with the local session metadata
+- the cross-sample comparison panel uses the active sample as the baseline and reports per-sample deltas for frequency of all events and of parent
+- the comparison panel also reports the active derived metric for each sample when it can be evaluated
+- the cohort summary panel groups those per-sample rows by cohort label and reports group-level mean frequency plus mean derived metric value
+- the active sample's cohort acts as the cohort-level baseline for delta reporting
+- if a loaded sample does not yet contain the selected population in its own gate history, the comparison panel marks it as missing instead of fabricating values
+- `Export Selected Comparison CSV` writes only the selected population comparison across the loaded samples
+- `Export Derived Metric CSV` writes only the selected population's derived-metric table across the loaded samples
+- `Export Cohort Summary CSV` writes only the grouped cohort summary across the loaded samples
+- `Export Batch Stats CSV` writes one grouped table spanning every currently loaded sample
 
 ## Gating Tools
 
@@ -169,7 +262,7 @@ Current implication:
 - The desktop now exercises the same deterministic engine against imported files, not only the demo sample
 - Workspace save/load now exists, but it depends on the original source files still being present on disk
 - There is still no bundled workspace format with cached derived data
-- compensation override editing, density views, and richer transform tuning are still ahead
+- compensation override editing, custom free-form formulas, richer grouped-comparison views, density views, and richer transform tuning are still ahead
 
 ## CLI and Backend
 
@@ -198,8 +291,8 @@ Parallax does not yet include:
 - Gate editing handles
 - Plot pan/zoom
 - Manual plot-range entry fields
-- Histogram or density plots
-- Reporting export
+- Density plots
+- Figure and report export
 - Cloud sync
 
 Those features are planned, but the current product center is still fast, explicit, reproducible analysis interactions.

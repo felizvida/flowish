@@ -100,6 +100,48 @@ impl Command {
         }
     }
 
+    pub fn with_sample_id(&self, sample_id: impl Into<String>) -> Self {
+        let sample_id = sample_id.into();
+        match self {
+            Self::RectangleGate {
+                population_id,
+                parent_population,
+                x_channel,
+                y_channel,
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+                ..
+            } => Self::RectangleGate {
+                sample_id,
+                population_id: population_id.clone(),
+                parent_population: parent_population.clone(),
+                x_channel: x_channel.clone(),
+                y_channel: y_channel.clone(),
+                x_min: *x_min,
+                x_max: *x_max,
+                y_min: *y_min,
+                y_max: *y_max,
+            },
+            Self::PolygonGate {
+                population_id,
+                parent_population,
+                x_channel,
+                y_channel,
+                vertices,
+                ..
+            } => Self::PolygonGate {
+                sample_id,
+                population_id: population_id.clone(),
+                parent_population: parent_population.clone(),
+                x_channel: x_channel.clone(),
+                y_channel: y_channel.clone(),
+                vertices: vertices.clone(),
+            },
+        }
+    }
+
     pub fn population_id(&self) -> &str {
         match self {
             Self::RectangleGate { population_id, .. } | Self::PolygonGate { population_id, .. } => {

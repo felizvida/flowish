@@ -13,7 +13,13 @@ ApplicationWindow {
 
     property var plotA: desktopController.plots.length > 0 ? desktopController.plots[0] : ({})
     property var plotB: desktopController.plots.length > 1 ? desktopController.plots[1] : ({})
+    property var plotC: desktopController.plots.length > 2 ? desktopController.plots[2] : ({})
     property string activeGateTool: "rectangle"
+    property string derivedMetricDraftKind: "positive_fraction"
+    property string derivedMetricDraftChannel: ""
+    property string derivedMetricDraftNumeratorChannel: ""
+    property string derivedMetricDraftDenominatorChannel: ""
+    property string derivedMetricDraftThreshold: "1.00"
 
     function transformIndex(kind) {
         if (kind === "signed_log10")
@@ -37,6 +43,115 @@ ApplicationWindow {
         if (index === 4)
             return "logicle"
         return "linear"
+    }
+
+    function plotAxisLabel(plot) {
+        if ((plot.kind || "") === "histogram")
+            return (plot.x_channel || "Channel") + " histogram"
+        return (plot.x_channel || "x") + " vs " + (plot.y_channel || "y")
+    }
+
+    function plotHelperText(plot) {
+        if ((plot.kind || "") === "histogram")
+            return "Histogram view is read-only today; use Auto, Focus, and Zoom to inspect distributions."
+        return window.activeGateTool === "rectangle"
+                ? "Drag to author a rectangle gate on this projection"
+                : "Click to place polygon vertices, then right-click to finish"
+    }
+
+    function formatPercent(value) {
+        const numeric = Number(value)
+        if (!isFinite(numeric))
+            return "0.0%"
+        return (numeric * 100).toFixed(1) + "%"
+    }
+
+    function formatSignedPercent(value) {
+        const numeric = Number(value)
+        if (!isFinite(numeric))
+            return "n/a"
+        const scaled = numeric * 100
+        const prefix = scaled > 0.0001 ? "+" : ""
+        return prefix + scaled.toFixed(1) + "%"
+    }
+
+    function formatPercentOrNA(value) {
+        const numeric = Number(value)
+        if (!isFinite(numeric))
+            return "n/a"
+        return (numeric * 100).toFixed(1) + "%"
+    }
+
+    function formatStatValue(value) {
+        const numeric = Number(value)
+        if (!isFinite(numeric))
+            return "n/a"
+        return numeric.toFixed(2)
+    }
+
+    function listIndex(values, value) {
+        for (let index = 0; index < values.length; ++index) {
+            if (values[index] === value)
+                return index
+        }
+        return values.length > 0 ? 0 : -1
+    }
+
+    function metricChannels() {
+        return desktopController.sample.channels || []
+    }
+
+    function fallbackChannel(channels, preferredIndex) {
+        if (channels.length === 0)
+            return ""
+        const index = Math.min(Math.max(preferredIndex, 0), channels.length - 1)
+        return channels[index]
+    }
+
+    function syncDerivedMetricDraft() {
+        const metric = desktopController.derivedMetric || {}
+        const channels = window.metricChannels()
+        window.derivedMetricDraftKind = metric.kind || "positive_fraction"
+        window.derivedMetricDraftChannel = metric.channel || window.fallbackChannel(channels, 0)
+        window.derivedMetricDraftNumeratorChannel =
+                metric.numerator_channel || window.fallbackChannel(channels, 0)
+        window.derivedMetricDraftDenominatorChannel =
+                metric.denominator_channel || window.fallbackChannel(channels, channels.length > 1 ? 1 : 0)
+        const threshold = Number(metric.threshold)
+        window.derivedMetricDraftThreshold = isFinite(threshold) ? threshold.toFixed(2) : "1.00"
+    }
+
+    function formatDerivedMetricValue(value, kind) {
+        const numeric = Number(value)
+        if (!isFinite(numeric))
+            return "n/a"
+        if (kind === "positive_fraction")
+            return window.formatPercent(numeric)
+        return numeric.toFixed(3)
+    }
+
+    function formatSignedDerivedMetricValue(value, kind) {
+        const numeric = Number(value)
+        if (!isFinite(numeric))
+            return "n/a"
+        if (kind === "positive_fraction")
+            return window.formatSignedPercent(numeric)
+        const prefix = numeric > 0.0001 ? "+" : ""
+        return prefix + numeric.toFixed(3)
+    }
+
+    function derivedMetricLabel() {
+        return desktopController.derivedMetric.label || "Derived metric"
+    }
+
+    Component.onCompleted: window.syncDerivedMetricDraft()
+
+    Connections {
+        target: desktopController
+
+        function onSnapshotChanged() {
+            window.syncDerivedMetricDraft()
+        }
     }
 
     Rectangle {
@@ -183,11 +298,55 @@ ApplicationWindow {
                                 }
                             }
 
+                            Button {
+                                text: "Export Stats CSV"
+                                onClicked: desktopController.exportStatsCsv()
+                            }
+
+                            Button {
+                                text: "Apply Template To Other Samples"
+                                enabled: desktopController.samples.length > 1
+                                onClicked: desktopController.applyActiveTemplateToOtherSamples()
+                            }
+
+                            Button {
+                                text: "Export Batch Stats CSV"
+                                enabled: desktopController.samples.length > 1
+                                onClicked: desktopController.exportBatchStatsCsv()
+                            }
+
+                            Button {
+                                text: "Export Selected Comparison CSV"
+                                enabled: desktopController.samples.length > 1
+                                onClicked: desktopController.exportSelectedPopulationComparisonCsv()
+                            }
+
+                            Button {
+                                text: "Export Cohort Summary CSV"
+                                enabled: desktopController.samples.length > 1
+                                onClicked: desktopController.exportSelectedPopulationGroupSummaryCsv()
+                            }
+
+                            Button {
+                                text: "Export Derived Metric CSV"
+                                onClicked: desktopController.exportSelectedPopulationDerivedMetricCsv()
+                            }
+
                             Text {
                                 width: parent.width
                                 text: desktopController.samples.length > 1
                                       ? "Switch between imported samples without leaving the local Rust session."
                                       : "Import one or more FCS files to replace the demo sample with a multi-sample session."
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: desktopController.samples.length > 1
+                                      ? "Batch actions use the active sample's current gate log as a template for the other loaded samples. Applying the template replaces gate history on the other samples, but keeps each sample's own analysis settings."
+                                      : "Batch workflows appear after you load more than one sample."
                                 color: "#6d5941"
                                 font.pixelSize: 13
                                 wrapMode: Text.WordWrap
@@ -203,6 +362,32 @@ ApplicationWindow {
                                 wrapMode: Text.WordWrap
                             }
 
+                            Text {
+                                text: "Active Sample Group"
+                                color: "#2e2216"
+                                font.pixelSize: 15
+                                font.weight: Font.Medium
+                            }
+
+                            Row {
+                                width: parent.width
+                                spacing: 8
+
+                                TextField {
+                                    id: activeSampleGroupField
+                                    width: parent.width - 128
+                                    text: desktopController.sample.group_label || "Ungrouped"
+                                    placeholderText: "Ungrouped"
+                                    selectByMouse: true
+                                    onEditingFinished: desktopController.setActiveSampleGroupLabel(text)
+                                }
+
+                                Button {
+                                    text: "Apply"
+                                    onClicked: desktopController.setActiveSampleGroupLabel(activeSampleGroupField.text)
+                                }
+                            }
+
                             Repeater {
                                 model: desktopController.samples
 
@@ -216,7 +401,7 @@ ApplicationWindow {
                                     border.color: modelData.id === desktopController.selectedSampleId
                                                   ? "#6f8a7b"
                                                   : "#dcc8a0"
-                                    implicitHeight: 76
+                                    implicitHeight: 92
 
                                     MouseArea {
                                         anchors.fill: parent
@@ -243,6 +428,12 @@ ApplicationWindow {
                                         }
 
                                         Text {
+                                            text: "Group: " + (modelData.group_label || "Ungrouped")
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                        }
+
+                                        Text {
                                             width: parent.width
                                             text: modelData.source_path || modelData.id
                                             color: "#8a7354"
@@ -250,6 +441,100 @@ ApplicationWindow {
                                             elide: Text.ElideLeft
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 10
+
+                            Text {
+                                text: "Derived Metric"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: window.derivedMetricLabel()
+                                      + " is evaluated on the selected population for every loaded sample."
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+
+                            ComboBox {
+                                width: parent.width
+                                model: [
+                                    "Positive Fraction",
+                                    "Mean Ratio"
+                                ]
+                                currentIndex: window.derivedMetricDraftKind === "mean_ratio" ? 1 : 0
+                                onActivated: {
+                                    window.derivedMetricDraftKind = currentIndex === 1
+                                            ? "mean_ratio"
+                                            : "positive_fraction"
+                                }
+                            }
+
+                            Column {
+                                width: parent.width
+                                spacing: 8
+                                visible: window.derivedMetricDraftKind === "positive_fraction"
+
+                                ComboBox {
+                                    width: parent.width
+                                    model: desktopController.sample.channels || []
+                                    currentIndex: window.listIndex(model, window.derivedMetricDraftChannel)
+                                    onActivated: window.derivedMetricDraftChannel = model[currentIndex] || ""
+                                }
+
+                                TextField {
+                                    id: derivedMetricThresholdField
+                                    width: parent.width
+                                    text: window.derivedMetricDraftThreshold
+                                    placeholderText: "Threshold"
+                                    selectByMouse: true
+                                    onTextEdited: window.derivedMetricDraftThreshold = text
+                                }
+
+                                Button {
+                                    text: "Apply Positive Fraction"
+                                    enabled: window.derivedMetricDraftChannel !== ""
+                                    onClicked: desktopController.setDerivedMetricPositiveFraction(
+                                                   window.derivedMetricDraftChannel,
+                                                   Number(derivedMetricThresholdField.text))
+                                }
+                            }
+
+                            Column {
+                                width: parent.width
+                                spacing: 8
+                                visible: window.derivedMetricDraftKind === "mean_ratio"
+
+                                ComboBox {
+                                    width: parent.width
+                                    model: desktopController.sample.channels || []
+                                    currentIndex: window.listIndex(model, window.derivedMetricDraftNumeratorChannel)
+                                    onActivated: window.derivedMetricDraftNumeratorChannel = model[currentIndex] || ""
+                                }
+
+                                ComboBox {
+                                    width: parent.width
+                                    model: desktopController.sample.channels || []
+                                    currentIndex: window.listIndex(model, window.derivedMetricDraftDenominatorChannel)
+                                    onActivated: window.derivedMetricDraftDenominatorChannel = model[currentIndex] || ""
+                                }
+
+                                Button {
+                                    text: "Apply Mean Ratio"
+                                    enabled: window.derivedMetricDraftNumeratorChannel !== ""
+                                             && window.derivedMetricDraftDenominatorChannel !== ""
+                                    onClicked: desktopController.setDerivedMetricMeanRatio(
+                                                   window.derivedMetricDraftNumeratorChannel,
+                                                   window.derivedMetricDraftDenominatorChannel)
                                 }
                             }
                         }
@@ -311,6 +596,239 @@ ApplicationWindow {
                                         onActivated: desktopController.setChannelTransform(
                                                          modelData.channel,
                                                          window.transformKindAt(currentIndex))
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 10
+
+                            Text {
+                                text: "Cross-Sample Comparison"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: desktopController.samples.length > 1
+                                      ? "Comparing "
+                                        + (desktopController.selectedPopulationComparison.population_id
+                                           || desktopController.selectedPopulationStats.population_id
+                                           || "All Events")
+                                        + " across "
+                                        + (desktopController.selectedPopulationComparison.available_sample_count || 0)
+                                        + " of "
+                                        + desktopController.samples.length
+                                        + " loaded samples."
+                                      : "Load more than one sample to compare the selected population side by side."
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Repeater {
+                                model: desktopController.selectedPopulationComparison.samples || []
+
+                                delegate: Rectangle {
+                                    width: parent.width
+                                    radius: 12
+                                    color: modelData.is_active_sample ? "#e7f0eb"
+                                          : modelData.status === "available" ? "#f7f4ed" : "#f7ede8"
+                                    border.width: 1
+                                    border.color: modelData.is_active_sample ? "#9fbea9"
+                                                : modelData.status === "available" ? "#d8ccb7" : "#dfb9a4"
+                                    implicitHeight: comparisonCardContent.implicitHeight + 24
+
+                                    Column {
+                                        id: comparisonCardContent
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 4
+
+                                        Text {
+                                            text: modelData.display_name
+                                                  + (modelData.is_active_sample ? "  •  Active baseline" : "")
+                                            color: "#2e2216"
+                                            font.pixelSize: 15
+                                            font.weight: Font.Medium
+                                        }
+
+                                        Text {
+                                            text: "Group: " + (modelData.group_label || "Ungrouped")
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                        }
+
+                                        Text {
+                                            visible: modelData.status === "available"
+                                            text: "Events " + (modelData.matched_events || 0)
+                                                  + " of " + (modelData.parent_events || 0)
+                                                  + "  •  All " + window.formatPercent(modelData.frequency_of_all)
+                                                  + "  •  Parent " + window.formatPercent(modelData.frequency_of_parent)
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            visible: modelData.status === "available" && !modelData.is_active_sample
+                                            text: "Delta vs active: all "
+                                                  + window.formatSignedPercent(modelData.delta_frequency_of_all)
+                                                  + "  •  parent "
+                                                  + window.formatSignedPercent(modelData.delta_frequency_of_parent)
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            visible: modelData.status === "available"
+                                                     && modelData.derived_metric_status === "available"
+                                            text: window.derivedMetricLabel() + "  •  "
+                                                  + window.formatDerivedMetricValue(
+                                                      modelData.derived_metric_value,
+                                                      desktopController.derivedMetric.kind)
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            visible: modelData.status === "available"
+                                                     && modelData.derived_metric_status === "available"
+                                                     && !modelData.is_active_sample
+                                            text: "Derived delta vs active: "
+                                                  + window.formatSignedDerivedMetricValue(
+                                                      modelData.derived_metric_delta_value,
+                                                      desktopController.derivedMetric.kind)
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            visible: modelData.status === "available"
+                                                     && modelData.derived_metric_status !== "available"
+                                                     && (modelData.derived_metric_message || "") !== ""
+                                            text: modelData.derived_metric_message
+                                            color: "#7a5947"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            visible: modelData.status !== "available"
+                                            text: "This population is not present in the current gate history for this sample yet."
+                                            color: "#7a5947"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 10
+
+                            Text {
+                                text: "Cohort Summary"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: desktopController.samples.length > 1
+                                      ? "Group labels turn the selected-population comparison into condition-aware cohort summaries."
+                                      : "Load more than one sample to summarize groups."
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Repeater {
+                                model: desktopController.selectedPopulationComparison.group_summaries || []
+
+                                delegate: Rectangle {
+                                    width: parent.width
+                                    radius: 12
+                                    color: modelData.is_active_group ? "#eef3f0" : "#f7f4ed"
+                                    border.width: 1
+                                    border.color: modelData.is_active_group ? "#bfd0c5" : "#d8ccb7"
+                                    implicitHeight: cohortCardContent.implicitHeight + 24
+
+                                    Column {
+                                        id: cohortCardContent
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 4
+
+                                        Text {
+                                            text: modelData.group_label
+                                                  + (modelData.is_active_group ? "  •  Active cohort" : "")
+                                            color: "#2e2216"
+                                            font.pixelSize: 15
+                                            font.weight: Font.Medium
+                                        }
+
+                                        Text {
+                                            text: (modelData.available_sample_count || 0)
+                                                  + " of " + (modelData.sample_count || 0)
+                                                  + " samples available"
+                                                  + ((modelData.missing_sample_count || 0) > 0
+                                                     ? "  •  " + modelData.missing_sample_count + " missing"
+                                                     : "")
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            text: "Mean of all " + window.formatPercentOrNA(modelData.mean_frequency_of_all)
+                                                  + "  •  Mean of parent " + window.formatPercentOrNA(modelData.mean_frequency_of_parent)
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            text: window.derivedMetricLabel() + " mean "
+                                                  + window.formatDerivedMetricValue(
+                                                      modelData.mean_derived_metric_value,
+                                                      desktopController.derivedMetric.kind)
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            visible: !modelData.is_active_group
+                                            text: "Delta vs active cohort: all "
+                                                  + window.formatSignedPercent(modelData.delta_mean_frequency_of_all)
+                                                  + "  •  parent "
+                                                  + window.formatSignedPercent(modelData.delta_mean_frequency_of_parent)
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            visible: !modelData.is_active_group
+                                            text: "Derived delta vs active cohort: "
+                                                  + window.formatSignedDerivedMetricValue(
+                                                      modelData.delta_mean_derived_metric_value,
+                                                      desktopController.derivedMetric.kind)
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
                                     }
                                 }
                             }
@@ -508,6 +1026,94 @@ ApplicationWindow {
                             spacing: 10
 
                             Text {
+                                text: "Population Stats"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            Rectangle {
+                                width: parent.width
+                                radius: 14
+                                color: "#eef3f0"
+                                border.width: 1
+                                border.color: "#bfd0c5"
+                                implicitHeight: 110
+
+                                Column {
+                                    anchors.fill: parent
+                                    anchors.margins: 12
+                                    spacing: 6
+
+                                    Text {
+                                        text: desktopController.selectedPopulationStats.population_id || "All Events"
+                                        color: "#214034"
+                                        font.pixelSize: 16
+                                        font.weight: Font.DemiBold
+                                    }
+
+                                    Text {
+                                        text: "Events " + (desktopController.selectedPopulationStats.matched_events || 0)
+                                              + " of " + (desktopController.selectedPopulationStats.parent_events || 0)
+                                        color: "#51685c"
+                                        font.pixelSize: 13
+                                    }
+
+                                    Text {
+                                        text: "Of all events " + window.formatPercent(
+                                                  desktopController.selectedPopulationStats.frequency_of_all)
+                                        color: "#51685c"
+                                        font.pixelSize: 13
+                                    }
+
+                                    Text {
+                                        text: "Of parent " + window.formatPercent(
+                                                  desktopController.selectedPopulationStats.frequency_of_parent)
+                                        color: "#51685c"
+                                        font.pixelSize: 13
+                                    }
+                                }
+                            }
+
+                            Repeater {
+                                model: desktopController.selectedPopulationStats.channel_stats || []
+
+                                delegate: Rectangle {
+                                    width: parent.width
+                                    radius: 12
+                                    color: "#f7f4ed"
+                                    border.width: 1
+                                    border.color: "#d8ccb7"
+                                    implicitHeight: 62
+
+                                    Column {
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 4
+
+                                        Text {
+                                            text: modelData.channel || ""
+                                            color: "#2e2216"
+                                            font.pixelSize: 15
+                                            font.weight: Font.Medium
+                                        }
+
+                                        Text {
+                                            text: "Mean " + window.formatStatValue(modelData.mean)
+                                                  + "  •  Median " + window.formatStatValue(modelData.median)
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 10
+
+                            Text {
                                 text: "Command Log"
                                 color: "#2e2216"
                                 font.pixelSize: 22
@@ -621,7 +1227,7 @@ ApplicationWindow {
                         }
 
                         Text {
-                            text: (plotA.x_channel || "x") + " vs " + (plotA.y_channel || "y")
+                            text: window.plotAxisLabel(plotA)
                             color: "#6d5941"
                             font.pixelSize: 14
                         }
@@ -660,9 +1266,7 @@ ApplicationWindow {
                         }
 
                         Text {
-                            text: window.activeGateTool === "rectangle"
-                                  ? "Drag to author a rectangle gate on this projection"
-                                  : "Click to place polygon vertices, then right-click to finish"
+                            text: window.plotHelperText(plotA)
                             color: "#8b6a3c"
                             font.pixelSize: 13
                         }
@@ -678,6 +1282,7 @@ ApplicationWindow {
                             ScatterPlotItem {
                                 anchors.fill: parent
                                 anchors.margins: 10
+                                visible: (plotA.kind || "scatter") !== "histogram"
                                 allPoints: plotA.all_points || []
                                 highlightPoints: plotA.highlight_points || []
                                 xMin: plotA.x_range ? plotA.x_range.min : 0
@@ -698,6 +1303,18 @@ ApplicationWindow {
                                                 plotA.id || "",
                                                 vertices)
                                 }
+                            }
+
+                            HistogramPlotItem {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                visible: (plotA.kind || "") === "histogram"
+                                allBins: plotA.all_bins || []
+                                highlightBins: plotA.highlight_bins || []
+                                xMin: plotA.x_range ? plotA.x_range.min : 0
+                                xMax: plotA.x_range ? plotA.x_range.max : 1
+                                yMin: plotA.y_range ? plotA.y_range.min : 0
+                                yMax: plotA.y_range ? plotA.y_range.max : 1
                             }
                         }
                     }
@@ -737,7 +1354,7 @@ ApplicationWindow {
                         }
 
                         Text {
-                            text: (plotB.x_channel || "x") + " vs " + (plotB.y_channel || "y")
+                            text: window.plotAxisLabel(plotB)
                             color: "#6d5941"
                             font.pixelSize: 14
                         }
@@ -776,9 +1393,7 @@ ApplicationWindow {
                         }
 
                         Text {
-                            text: window.activeGateTool === "rectangle"
-                                  ? "Drag to author a rectangle gate on this projection"
-                                  : "Click to place polygon vertices, then right-click to finish"
+                            text: window.plotHelperText(plotB)
                             color: "#8b6a3c"
                             font.pixelSize: 13
                         }
@@ -794,6 +1409,7 @@ ApplicationWindow {
                             ScatterPlotItem {
                                 anchors.fill: parent
                                 anchors.margins: 10
+                                visible: (plotB.kind || "scatter") !== "histogram"
                                 allPoints: plotB.all_points || []
                                 highlightPoints: plotB.highlight_points || []
                                 xMin: plotB.x_range ? plotB.x_range.min : 0
@@ -814,6 +1430,146 @@ ApplicationWindow {
                                                 plotB.id || "",
                                                 vertices)
                                 }
+                            }
+
+                            HistogramPlotItem {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                visible: (plotB.kind || "") === "histogram"
+                                allBins: plotB.all_bins || []
+                                highlightBins: plotB.highlight_bins || []
+                                xMin: plotB.x_range ? plotB.x_range.min : 0
+                                xMax: plotB.x_range ? plotB.x_range.max : 1
+                                yMin: plotB.y_range ? plotB.y_range.min : 0
+                                yMax: plotB.y_range ? plotB.y_range.max : 1
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    Layout.fillHeight: true
+                    visible: !!(plotC.id || "")
+                    radius: 22
+                    color: "#fffaf1"
+                    border.width: 1
+                    border.color: "#dcc8a0"
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 10
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: plotC.title || "Plot C"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: "Highlighted " + (plotC.highlight_count || 0)
+                                color: "#6d5941"
+                                font.pixelSize: 14
+                            }
+                        }
+
+                        Text {
+                            text: window.plotAxisLabel(plotC)
+                            color: "#6d5941"
+                            font.pixelSize: 14
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Button {
+                                text: "Auto"
+                                onClicked: desktopController.resetPlotView(plotC.id || "")
+                            }
+
+                            Button {
+                                text: "Focus"
+                                onClicked: desktopController.focusPlotOnSelectedPopulation(plotC.id || "")
+                            }
+
+                            Button {
+                                text: "Zoom In"
+                                onClicked: desktopController.scalePlotView(plotC.id || "", 0.7)
+                            }
+
+                            Button {
+                                text: "Zoom Out"
+                                onClicked: desktopController.scalePlotView(plotC.id || "", 1.4)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: plotC.view_summary || "Auto extents"
+                                color: "#8b6a3c"
+                                font.pixelSize: 13
+                            }
+                        }
+
+                        Text {
+                            text: window.plotHelperText(plotC)
+                            color: "#8b6a3c"
+                            font.pixelSize: 13
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: 18
+                            color: "#f2eadc"
+                            border.width: 1
+                            border.color: "#d3c2a0"
+
+                            ScatterPlotItem {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                visible: (plotC.kind || "scatter") !== "histogram"
+                                allPoints: plotC.all_points || []
+                                highlightPoints: plotC.highlight_points || []
+                                xMin: plotC.x_range ? plotC.x_range.min : 0
+                                xMax: plotC.x_range ? plotC.x_range.max : 1
+                                yMin: plotC.y_range ? plotC.y_range.min : 0
+                                yMax: plotC.y_range ? plotC.y_range.max : 1
+                                interactionMode: window.activeGateTool
+                                onRectangleGateDrawn: function (xMin, xMax, yMin, yMax) {
+                                    desktopController.createRectangleGateForPlot(
+                                                plotC.id || "",
+                                                xMin,
+                                                xMax,
+                                                yMin,
+                                                yMax)
+                                }
+                                onPolygonGateDrawn: function (vertices) {
+                                    desktopController.createPolygonGateForPlot(
+                                                plotC.id || "",
+                                                vertices)
+                                }
+                            }
+
+                            HistogramPlotItem {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                visible: (plotC.kind || "") === "histogram"
+                                allBins: plotC.all_bins || []
+                                highlightBins: plotC.highlight_bins || []
+                                xMin: plotC.x_range ? plotC.x_range.min : 0
+                                xMax: plotC.x_range ? plotC.x_range.max : 1
+                                yMin: plotC.y_range ? plotC.y_range.min : 0
+                                yMax: plotC.y_range ? plotC.y_range.max : 1
                             }
                         }
                     }

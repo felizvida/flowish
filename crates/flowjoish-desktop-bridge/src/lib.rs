@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString};
+use std::fmt::Write as _;
 use std::fs;
 use std::os::raw::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -8,8 +9,8 @@ use std::ptr;
 
 use flowjoish_core::{
     BitMask, ChannelTransform, Command, CommandLog, CompensationMatrix, JsonValue,
-    ReplayEnvironment, SampleAnalysisProfile, SampleFrame, StableHasher, WorkspaceState,
-    apply_sample_analysis,
+    PopulationStats, ReplayEnvironment, SampleAnalysisProfile, SampleFrame, StableHasher,
+    WorkspaceState, apply_sample_analysis, compute_population_stats_table,
 };
 use flowjoish_fcs::parse as parse_fcs;
 
@@ -17,12 +18,69 @@ use flowjoish_fcs::parse as parse_fcs;
 struct DesktopSampleInfo {
     display_name: String,
     source_path: Option<String>,
+    group_label: String,
 }
 
 #[derive(Clone, Debug)]
 struct DesktopSampleArtifact {
     raw_sample: SampleFrame,
     compensation: Option<CompensationMatrix>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PopulationComparisonRow {
+    sample_id: String,
+    display_name: String,
+    source_path: Option<String>,
+    group_label: String,
+    is_active_sample: bool,
+    status: String,
+    matched_events: Option<usize>,
+    parent_events: Option<usize>,
+    frequency_of_all: Option<f64>,
+    frequency_of_parent: Option<f64>,
+    delta_frequency_of_all: Option<f64>,
+    delta_frequency_of_parent: Option<f64>,
+    derived_metric_status: String,
+    derived_metric_value: Option<f64>,
+    derived_metric_delta_value: Option<f64>,
+    derived_metric_message: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PopulationGroupSummaryRow {
+    group_label: String,
+    is_active_group: bool,
+    sample_count: usize,
+    available_sample_count: usize,
+    missing_sample_count: usize,
+    total_matched_events: usize,
+    total_parent_events: usize,
+    mean_frequency_of_all: Option<f64>,
+    mean_frequency_of_parent: Option<f64>,
+    delta_mean_frequency_of_all: Option<f64>,
+    delta_mean_frequency_of_parent: Option<f64>,
+    mean_derived_metric_value: Option<f64>,
+    delta_mean_derived_metric_value: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum DerivedMetricDefinition {
+    PositiveFraction {
+        channel: String,
+        threshold: f64,
+    },
+    MeanRatio {
+        numerator_channel: String,
+        denominator_channel: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct DerivedMetricEvaluation {
+    status: String,
+    value: Option<f64>,
+    message: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,6 +145,115 @@ struct PlotRangeState {
     y_min: f64,
     y_max: f64,
     summary: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PlotKind {
+    Scatter,
+    Histogram,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PlotSpec {
+    id: String,
+    title: String,
+    kind: PlotKind,
+    x_channel: String,
+    y_channel: Option<String>,
+}
+
+impl DerivedMetricDefinition {
+    fn label(&self) -> String {
+        match self {
+            Self::PositiveFraction { channel, threshold } => {
+                format!("Positive fraction: {channel} >= {threshold:.2}")
+            }
+            Self::MeanRatio {
+                numerator_channel,
+                denominator_channel,
+            } => format!("Mean ratio: {numerator_channel} / {denominator_channel}"),
+        }
+    }
+
+    fn kind_name(&self) -> &'static str {
+        match self {
+            Self::PositiveFraction { .. } => "positive_fraction",
+            Self::MeanRatio { .. } => "mean_ratio",
+        }
+    }
+
+    fn to_json_value(&self) -> JsonValue {
+        match self {
+            Self::PositiveFraction { channel, threshold } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind_name().to_string())),
+                ("label", JsonValue::String(self.label())),
+                ("channel", JsonValue::String(channel.clone())),
+                ("threshold", JsonValue::Number(*threshold)),
+            ]),
+            Self::MeanRatio {
+                numerator_channel,
+                denominator_channel,
+            } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind_name().to_string())),
+                ("label", JsonValue::String(self.label())),
+                (
+                    "numerator_channel",
+                    JsonValue::String(numerator_channel.clone()),
+                ),
+                (
+                    "denominator_channel",
+                    JsonValue::String(denominator_channel.clone()),
+                ),
+            ]),
+        }
+    }
+
+    fn from_json_value(value: &JsonValue) -> Result<Self, String> {
+        let kind = value
+            .get("kind")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| "derived metric is missing kind".to_string())?;
+        match kind {
+            "positive_fraction" => {
+                let channel = value
+                    .get("channel")
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| "positive_fraction derived metric is missing channel".to_string())?
+                    .to_string();
+                let threshold = value
+                    .get("threshold")
+                    .and_then(JsonValue::as_f64)
+                    .ok_or_else(|| {
+                        "positive_fraction derived metric is missing threshold".to_string()
+                    })?;
+                if !threshold.is_finite() {
+                    return Err("positive_fraction threshold must be finite".to_string());
+                }
+                Ok(Self::PositiveFraction { channel, threshold })
+            }
+            "mean_ratio" => {
+                let numerator_channel = value
+                    .get("numerator_channel")
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| {
+                        "mean_ratio derived metric is missing numerator_channel".to_string()
+                    })?
+                    .to_string();
+                let denominator_channel = value
+                    .get("denominator_channel")
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| {
+                        "mean_ratio derived metric is missing denominator_channel".to_string()
+                    })?
+                    .to_string();
+                Ok(Self::MeanRatio {
+                    numerator_channel,
+                    denominator_channel,
+                })
+            }
+            other => Err(format!("unknown derived metric kind '{other}'")),
+        }
+    }
 }
 
 impl AnalysisAction {
@@ -389,11 +556,11 @@ impl ViewActionLog {
         sample_id: &str,
         sample: &SampleFrame,
         state: &WorkspaceState,
-        plots: &[(String, String, String, String)],
+        plots: &[PlotSpec],
     ) -> Result<BTreeMap<String, PlotRangeState>, String> {
         let mut ranges = BTreeMap::new();
         for plot in plots {
-            ranges.insert(plot.0.clone(), auto_plot_range(sample, plot)?);
+            ranges.insert(plot.id.clone(), auto_plot_range(sample, plot)?);
         }
 
         for record in &self.records {
@@ -408,7 +575,7 @@ impl ViewActionLog {
 
             let plot = plots
                 .iter()
-                .find(|candidate| candidate.0 == record.action.plot_id())
+                .find(|candidate| candidate.id == record.action.plot_id())
                 .ok_or_else(|| {
                     format!(
                         "view action at sequence {} references unknown plot '{}'",
@@ -552,6 +719,7 @@ impl ViewActionRecord {
 struct WorkspaceSampleSpec {
     id: String,
     display_name: String,
+    group_label: String,
     source: WorkspaceSampleSource,
 }
 
@@ -563,6 +731,7 @@ enum WorkspaceSampleSource {
 struct WorkspaceDocument {
     active_sample_id: String,
     sample_specs: Vec<WorkspaceSampleSpec>,
+    derived_metric: DerivedMetricDefinition,
     command_logs: BTreeMap<String, CommandLog>,
     analysis_logs: BTreeMap<String, AnalysisActionLog>,
     view_logs: BTreeMap<String, ViewActionLog>,
@@ -575,6 +744,7 @@ pub struct DesktopSession {
     sample_id: String,
     sample_order: Vec<String>,
     sample_info: BTreeMap<String, DesktopSampleInfo>,
+    derived_metric: DerivedMetricDefinition,
     command_logs: BTreeMap<String, CommandLog>,
     analysis_logs: BTreeMap<String, AnalysisActionLog>,
     view_logs: BTreeMap<String, ViewActionLog>,
@@ -605,6 +775,7 @@ impl DesktopSession {
             DesktopSampleInfo {
                 display_name: "Demo Sample".to_string(),
                 source_path: None,
+                group_label: default_group_label(),
             },
         );
         let mut command_logs = BTreeMap::new();
@@ -615,6 +786,11 @@ impl DesktopSession {
         view_logs.insert(sample_id.clone(), ViewActionLog::new());
         let mut redo_stacks = BTreeMap::new();
         redo_stacks.insert(sample_id.clone(), Vec::new());
+        let derived_metric = default_derived_metric_for_sample(
+            sample_artifacts
+                .get(&sample_id)
+                .map(|artifact| &artifact.raw_sample),
+        );
 
         Ok(Self {
             environment,
@@ -622,6 +798,7 @@ impl DesktopSession {
             sample_id,
             sample_order: vec!["desktop-demo".to_string()],
             sample_info,
+            derived_metric,
             command_logs,
             analysis_logs,
             view_logs,
@@ -738,6 +915,11 @@ impl DesktopSession {
             ("commands", commands_json(command_log)),
             ("analysis_actions", analysis_actions_json(analysis_log)),
             ("populations", populations_json(sample, &state)),
+            (
+                "population_stats",
+                population_stats_json(&processed_sample, &state)?,
+            ),
+            ("derived_metric", self.derived_metric.to_json_value()),
             (
                 "plots",
                 plots_json(&processed_sample, &state, &plot_specs, &plot_ranges)?,
@@ -994,6 +1176,7 @@ impl DesktopSession {
         self.sample_id = imported.active_sample_id;
         self.sample_order = imported.sample_order;
         self.sample_info = imported.sample_info;
+        self.derived_metric = imported.derived_metric;
         self.command_logs = imported.command_logs;
         self.analysis_logs = imported.analysis_logs;
         self.view_logs = imported.view_logs;
@@ -1064,6 +1247,7 @@ impl DesktopSession {
         self.sample_id = imported.active_sample_id;
         self.sample_order = imported.sample_order;
         self.sample_info = imported.sample_info;
+        self.derived_metric = imported.derived_metric;
         self.command_logs = imported.command_logs;
         self.analysis_logs = imported.analysis_logs;
         self.view_logs = imported.view_logs;
@@ -1073,28 +1257,331 @@ impl DesktopSession {
             .unwrap_or_else(|message| error_json_value(message))
     }
 
+    fn export_population_stats_csv(&self, export_path: &str) -> JsonValue {
+        if export_path.trim().is_empty() {
+            return error_json_value("stats export path cannot be empty");
+        }
+
+        let (processed_sample, _, state, _) = match self.active_replay_state() {
+            Ok(values) => values,
+            Err(message) => return error_json_value(message),
+        };
+        let stats = match compute_population_stats_table(&processed_sample, &state) {
+            Ok(stats) => stats,
+            Err(error) => return error_json_value(error.to_string()),
+        };
+        let csv = population_stats_csv(&stats);
+
+        if let Err(error) = fs::write(export_path, csv) {
+            return error_json_value(format!(
+                "failed to write stats export '{}': {error}",
+                export_path
+            ));
+        }
+
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn apply_active_template_to_other_samples(&mut self) -> JsonValue {
+        if self.sample_order.len() < 2 {
+            return error_json_value("template application requires at least two loaded samples");
+        }
+
+        let source_sample_id = self.sample_id.clone();
+        let source_log = match self.command_log_for_sample(&source_sample_id) {
+            Ok(log) => log,
+            Err(message) => return error_json_value(message),
+        };
+        if source_log.is_empty() {
+            return error_json_value("active sample has no gate commands to apply as a template");
+        }
+
+        let mut candidate_logs = Vec::new();
+        for target_sample_id in self
+            .sample_order
+            .iter()
+            .filter(|sample_id| sample_id.as_str() != source_sample_id)
+        {
+            let next_log = match self.template_log_for_target(&source_sample_id, target_sample_id) {
+                Ok(log) => log,
+                Err(message) => return error_json_value(message),
+            };
+            let (_, _, _, replay_environment) =
+                match self.processed_environment_for_sample(target_sample_id) {
+                    Ok(values) => values,
+                    Err(message) => return error_json_value(message),
+                };
+            if let Err(error) = next_log.replay(&replay_environment) {
+                return error_json_value(format!(
+                    "template is incompatible with sample '{}': {}",
+                    target_sample_id, error
+                ));
+            }
+            candidate_logs.push((target_sample_id.clone(), next_log));
+        }
+
+        for (sample_id, next_log) in candidate_logs {
+            if let Some(log) = self.command_logs.get_mut(&sample_id) {
+                *log = next_log;
+            }
+            if let Some(redo_stack) = self.redo_stacks.get_mut(&sample_id) {
+                redo_stack.clear();
+            }
+            if let Some(view_log) = self.view_logs.get_mut(&sample_id) {
+                *view_log = ViewActionLog::new();
+            }
+        }
+
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn export_batch_population_stats_csv(&self, export_path: &str) -> JsonValue {
+        if export_path.trim().is_empty() {
+            return error_json_value("batch stats export path cannot be empty");
+        }
+
+        let mut stats = Vec::new();
+        for sample_id in &self.sample_order {
+            let (processed_sample, _, state, _) = match self.replay_state_for_sample(sample_id) {
+                Ok(values) => values,
+                Err(message) => return error_json_value(message),
+            };
+            let sample_stats = match compute_population_stats_table(&processed_sample, &state) {
+                Ok(stats) => stats,
+                Err(error) => return error_json_value(error.to_string()),
+            };
+            stats.extend(sample_stats);
+        }
+
+        let csv = population_stats_csv(&stats);
+        if let Err(error) = fs::write(export_path, csv) {
+            return error_json_value(format!(
+                "failed to write batch stats export '{}': {error}",
+                export_path
+            ));
+        }
+
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn population_comparison(&self, population_key: &str) -> JsonValue {
+        if population_key.trim().is_empty() {
+            return error_json_value("population comparison key cannot be empty");
+        }
+
+        let (population_id, rows) = match self.population_comparison_rows(population_key) {
+            Ok(values) => values,
+            Err(message) => return error_json_value(message),
+        };
+        let active_group_label = self
+            .active_sample_group_label()
+            .unwrap_or_else(default_group_label);
+        let group_summaries = population_group_summaries(&rows, &active_group_label);
+        let available_sample_count = rows.iter().filter(|row| row.status == "available").count();
+        let missing_sample_count = rows.len().saturating_sub(available_sample_count);
+
+        JsonValue::object([
+            ("status", JsonValue::String("ready".to_string())),
+            (
+                "population_comparison",
+                JsonValue::object([
+                    ("key", JsonValue::String(population_key.to_string())),
+                    ("population_id", JsonValue::String(population_id)),
+                    (
+                        "active_sample_id",
+                        JsonValue::String(self.sample_id.clone()),
+                    ),
+                    (
+                        "available_sample_count",
+                        JsonValue::Number(available_sample_count as f64),
+                    ),
+                    (
+                        "missing_sample_count",
+                        JsonValue::Number(missing_sample_count as f64),
+                    ),
+                    (
+                        "active_group_label",
+                        JsonValue::String(active_group_label),
+                    ),
+                    (
+                        "derived_metric",
+                        self.derived_metric.to_json_value(),
+                    ),
+                    (
+                        "samples",
+                        JsonValue::Array(
+                            rows.into_iter()
+                                .map(population_comparison_row_json)
+                                .collect::<Vec<_>>(),
+                        ),
+                    ),
+                    (
+                        "group_summaries",
+                        JsonValue::Array(
+                            group_summaries
+                                .into_iter()
+                                .map(population_group_summary_row_json)
+                                .collect::<Vec<_>>(),
+                        ),
+                    ),
+                ]),
+            ),
+        ])
+    }
+
+    fn export_population_comparison_csv(&self, population_key: &str, export_path: &str) -> JsonValue {
+        if population_key.trim().is_empty() {
+            return error_json_value("population comparison key cannot be empty");
+        }
+        if export_path.trim().is_empty() {
+            return error_json_value("population comparison export path cannot be empty");
+        }
+
+        let (population_id, rows) = match self.population_comparison_rows(population_key) {
+            Ok(values) => values,
+            Err(message) => return error_json_value(message),
+        };
+        let active_group_label = self
+            .active_sample_group_label()
+            .unwrap_or_else(default_group_label);
+        let csv = population_comparison_csv(
+            population_key,
+            &population_id,
+            &self.sample_id,
+            &active_group_label,
+            &rows,
+        );
+        if let Err(error) = fs::write(export_path, csv) {
+            return error_json_value(format!(
+                "failed to write population comparison export '{}': {error}",
+                export_path
+            ));
+        }
+
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn export_population_group_summary_csv(&self, population_key: &str, export_path: &str) -> JsonValue {
+        if population_key.trim().is_empty() {
+            return error_json_value("population group summary key cannot be empty");
+        }
+        if export_path.trim().is_empty() {
+            return error_json_value("population group summary export path cannot be empty");
+        }
+
+        let (population_id, rows) = match self.population_comparison_rows(population_key) {
+            Ok(values) => values,
+            Err(message) => return error_json_value(message),
+        };
+        let active_group_label = self
+            .active_sample_group_label()
+            .unwrap_or_else(default_group_label);
+        let group_summaries = population_group_summaries(&rows, &active_group_label);
+        let csv = population_group_summary_csv(
+            population_key,
+            &population_id,
+            &self.sample_id,
+            &active_group_label,
+            &group_summaries,
+        );
+        if let Err(error) = fs::write(export_path, csv) {
+            return error_json_value(format!(
+                "failed to write population group summary export '{}': {error}",
+                export_path
+            ));
+        }
+
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn set_derived_metric_from_json(&mut self, metric_json: &str) -> JsonValue {
+        let value = match JsonValue::parse(metric_json) {
+            Ok(value) => value,
+            Err(error) => return error_json_value(error.to_string()),
+        };
+        let metric = match DerivedMetricDefinition::from_json_value(&value) {
+            Ok(metric) => metric,
+            Err(message) => return error_json_value(message),
+        };
+
+        let active_sample = match self.active_sample_artifact() {
+            Ok(artifact) => &artifact.raw_sample,
+            Err(message) => return error_json_value(message),
+        };
+        if let Err(message) = validate_derived_metric_for_sample(active_sample, &metric) {
+            return error_json_value(message);
+        }
+
+        self.derived_metric = metric;
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn export_population_derived_metric_csv(&self, population_key: &str, export_path: &str) -> JsonValue {
+        if population_key.trim().is_empty() {
+            return error_json_value("population derived metric key cannot be empty");
+        }
+        if export_path.trim().is_empty() {
+            return error_json_value("population derived metric export path cannot be empty");
+        }
+
+        let (population_id, rows) = match self.population_comparison_rows(population_key) {
+            Ok(values) => values,
+            Err(message) => return error_json_value(message),
+        };
+        let csv = population_derived_metric_csv(
+            population_key,
+            &population_id,
+            &self.sample_id,
+            &self.derived_metric,
+            &rows,
+        );
+        if let Err(error) = fs::write(export_path, csv) {
+            return error_json_value(format!(
+                "failed to write population derived metric export '{}': {error}",
+                export_path
+            ));
+        }
+
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn set_sample_group_label(&mut self, sample_id: &str, group_label: &str) -> JsonValue {
+        let info = match self.sample_info.get_mut(sample_id) {
+            Some(info) => info,
+            None => return error_json_value(format!("unknown sample '{sample_id}'")),
+        };
+        info.group_label = normalize_group_label(group_label);
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
     fn active_command_log(&self) -> Result<&CommandLog, String> {
-        self.command_logs
-            .get(&self.sample_id)
-            .ok_or_else(|| format!("missing command log for sample '{}'", self.sample_id))
+        self.command_log_for_sample(&self.sample_id)
     }
 
     fn active_analysis_log(&self) -> Result<&AnalysisActionLog, String> {
-        self.analysis_logs
-            .get(&self.sample_id)
-            .ok_or_else(|| format!("missing analysis log for sample '{}'", self.sample_id))
+        self.analysis_log_for_sample(&self.sample_id)
     }
 
     fn active_view_log(&self) -> Result<&ViewActionLog, String> {
-        self.view_logs
-            .get(&self.sample_id)
-            .ok_or_else(|| format!("missing view log for sample '{}'", self.sample_id))
+        self.view_log_for_sample(&self.sample_id)
     }
 
     fn active_sample_artifact(&self) -> Result<&DesktopSampleArtifact, String> {
-        self.sample_artifacts
+        self.sample_artifact_for(&self.sample_id)
+    }
+
+    fn active_sample_group_label(&self) -> Option<String> {
+        self.sample_info
             .get(&self.sample_id)
-            .ok_or_else(|| format!("missing sample artifact for sample '{}'", self.sample_id))
+            .map(|info| info.group_label.clone())
     }
 
     fn active_processed_environment(
@@ -1111,8 +1598,52 @@ impl DesktopSession {
     fn active_replay_state(
         &self,
     ) -> Result<(SampleFrame, SampleAnalysisProfile, WorkspaceState, u64), String> {
-        let artifact = self.active_sample_artifact()?;
-        let analysis_log = self.active_analysis_log()?;
+        self.replay_state_for_sample(&self.sample_id)
+    }
+
+    fn command_log_for_sample(&self, sample_id: &str) -> Result<&CommandLog, String> {
+        self.command_logs
+            .get(sample_id)
+            .ok_or_else(|| format!("missing command log for sample '{sample_id}'"))
+    }
+
+    fn analysis_log_for_sample(&self, sample_id: &str) -> Result<&AnalysisActionLog, String> {
+        self.analysis_logs
+            .get(sample_id)
+            .ok_or_else(|| format!("missing analysis log for sample '{sample_id}'"))
+    }
+
+    fn view_log_for_sample(&self, sample_id: &str) -> Result<&ViewActionLog, String> {
+        self.view_logs
+            .get(sample_id)
+            .ok_or_else(|| format!("missing view log for sample '{sample_id}'"))
+    }
+
+    fn sample_artifact_for(&self, sample_id: &str) -> Result<&DesktopSampleArtifact, String> {
+        self.sample_artifacts
+            .get(sample_id)
+            .ok_or_else(|| format!("missing sample artifact for sample '{sample_id}'"))
+    }
+
+    fn processed_environment_for_sample(
+        &self,
+        sample_id: &str,
+    ) -> Result<(SampleFrame, SampleAnalysisProfile, u64, ReplayEnvironment), String> {
+        let (processed_sample, analysis_profile, _, execution_hash) =
+            self.replay_state_for_sample(sample_id)?;
+        let mut environment = ReplayEnvironment::new();
+        environment
+            .insert_sample(processed_sample.clone())
+            .map_err(|error| error.to_string())?;
+        Ok((processed_sample, analysis_profile, execution_hash, environment))
+    }
+
+    fn replay_state_for_sample(
+        &self,
+        sample_id: &str,
+    ) -> Result<(SampleFrame, SampleAnalysisProfile, WorkspaceState, u64), String> {
+        let artifact = self.sample_artifact_for(sample_id)?;
+        let analysis_log = self.analysis_log_for_sample(sample_id)?;
         let profile = analysis_log.replay_profile(
             artifact.raw_sample.sample_id(),
             &artifact.raw_sample,
@@ -1129,7 +1660,7 @@ impl DesktopSession {
             .insert_sample(processed_sample.clone())
             .map_err(|error| error.to_string())?;
         let state = self
-            .active_command_log()?
+            .command_log_for_sample(sample_id)?
             .replay(&environment)
             .map_err(|error| error.to_string())?;
 
@@ -1138,6 +1669,109 @@ impl DesktopSession {
         hasher.update_u64(state.execution_hash);
 
         Ok((processed_sample, profile, state, hasher.finish_u64()))
+    }
+
+    fn population_comparison_rows(
+        &self,
+        population_key: &str,
+    ) -> Result<(String, Vec<PopulationComparisonRow>), String> {
+        let (active_sample, _, active_state, _) = self.active_replay_state()?;
+        let active_stats = find_population_stats_for_key(&active_sample, &active_state, population_key)?
+            .ok_or_else(|| {
+                format!(
+                    "active sample '{}' does not contain population '{}'",
+                    self.sample_id, population_key
+                )
+            })?;
+        let population_id = active_stats.population_id.clone();
+        let baseline_frequency_of_all = active_stats.frequency_of_all;
+        let baseline_frequency_of_parent = active_stats.frequency_of_parent;
+        let baseline_metric = evaluate_derived_metric(
+            &active_sample,
+            &active_state,
+            population_key,
+            &self.derived_metric,
+        );
+        let baseline_metric_value = baseline_metric.value;
+
+        let mut rows = Vec::with_capacity(self.sample_order.len());
+        for sample_id in &self.sample_order {
+            let sample_info = self
+                .sample_info
+                .get(sample_id)
+                .ok_or_else(|| format!("missing sample info '{}'", sample_id))?;
+            let (processed_sample, _, state, _) = self.replay_state_for_sample(sample_id)?;
+            let stats = find_population_stats_for_key(&processed_sample, &state, population_key)?;
+            let metric = evaluate_derived_metric(
+                &processed_sample,
+                &state,
+                population_key,
+                &self.derived_metric,
+            );
+            match stats {
+                Some(stats) => rows.push(PopulationComparisonRow {
+                    sample_id: sample_id.clone(),
+                    display_name: sample_info.display_name.clone(),
+                    source_path: sample_info.source_path.clone(),
+                    group_label: sample_info.group_label.clone(),
+                    is_active_sample: sample_id == &self.sample_id,
+                    status: "available".to_string(),
+                    matched_events: Some(stats.matched_events),
+                    parent_events: Some(stats.parent_events),
+                    frequency_of_all: Some(stats.frequency_of_all),
+                    frequency_of_parent: Some(stats.frequency_of_parent),
+                    delta_frequency_of_all: Some(
+                        stats.frequency_of_all - baseline_frequency_of_all,
+                    ),
+                    delta_frequency_of_parent: Some(
+                        stats.frequency_of_parent - baseline_frequency_of_parent,
+                    ),
+                    derived_metric_status: metric.status,
+                    derived_metric_value: metric.value,
+                    derived_metric_delta_value: match (metric.value, baseline_metric_value) {
+                        (Some(value), Some(baseline)) => Some(value - baseline),
+                        _ => None,
+                    },
+                    derived_metric_message: metric.message,
+                }),
+                None => rows.push(PopulationComparisonRow {
+                    sample_id: sample_id.clone(),
+                    display_name: sample_info.display_name.clone(),
+                    source_path: sample_info.source_path.clone(),
+                    group_label: sample_info.group_label.clone(),
+                    is_active_sample: sample_id == &self.sample_id,
+                    status: "missing".to_string(),
+                    matched_events: None,
+                    parent_events: None,
+                    frequency_of_all: None,
+                    frequency_of_parent: None,
+                    delta_frequency_of_all: None,
+                    delta_frequency_of_parent: None,
+                    derived_metric_status: "missing_population".to_string(),
+                    derived_metric_value: None,
+                    derived_metric_delta_value: None,
+                    derived_metric_message: Some(
+                        "This population is not present in the current gate history for this sample."
+                            .to_string(),
+                    ),
+                }),
+            }
+        }
+
+        Ok((population_id, rows))
+    }
+
+    fn template_log_for_target(
+        &self,
+        source_sample_id: &str,
+        target_sample_id: &str,
+    ) -> Result<CommandLog, String> {
+        let source_log = self.command_log_for_sample(source_sample_id)?;
+        let mut next_log = CommandLog::new();
+        for record in source_log.records() {
+            next_log.append(record.command.with_sample_id(target_sample_id.to_string()));
+        }
+        Ok(next_log)
     }
 
     fn workspace_document_json(&self) -> Result<JsonValue, String> {
@@ -1198,6 +1832,7 @@ impl DesktopSession {
                 JsonValue::String(self.sample_id.clone()),
             ),
             ("samples", JsonValue::Array(samples)),
+            ("derived_metric", self.derived_metric.to_json_value()),
             ("command_logs", JsonValue::Object(command_logs)),
             ("analysis_logs", JsonValue::Object(analysis_logs)),
             ("view_logs", JsonValue::Object(view_logs)),
@@ -1212,6 +1847,7 @@ struct ImportedSession {
     active_sample_id: String,
     sample_order: Vec<String>,
     sample_info: BTreeMap<String, DesktopSampleInfo>,
+    derived_metric: DerivedMetricDefinition,
     command_logs: BTreeMap<String, CommandLog>,
     analysis_logs: BTreeMap<String, AnalysisActionLog>,
     view_logs: BTreeMap<String, ViewActionLog>,
@@ -1261,6 +1897,7 @@ impl ImportedSession {
                 DesktopSampleInfo {
                     display_name,
                     source_path: Some(path.clone()),
+                    group_label: default_group_label(),
                 },
             );
             command_logs.insert(sample_id.clone(), CommandLog::new());
@@ -1273,6 +1910,11 @@ impl ImportedSession {
             .first()
             .cloned()
             .ok_or_else(|| "import did not produce any samples".to_string())?;
+        let derived_metric = default_derived_metric_for_sample(
+            sample_artifacts
+                .get(&active_sample_id)
+                .map(|artifact| &artifact.raw_sample),
+        );
 
         Ok(Self {
             environment,
@@ -1280,6 +1922,7 @@ impl ImportedSession {
             active_sample_id,
             sample_order,
             sample_info,
+            derived_metric,
             command_logs,
             analysis_logs,
             view_logs,
@@ -1305,6 +1948,7 @@ impl ImportedSession {
                 DesktopSampleInfo {
                     display_name: spec.display_name.clone(),
                     source_path: spec.source.path().map(str::to_string),
+                    group_label: normalize_group_label(&spec.group_label),
                 },
             );
         }
@@ -1353,6 +1997,7 @@ impl ImportedSession {
             active_sample_id: workspace.active_sample_id,
             sample_order,
             sample_info,
+            derived_metric: workspace.derived_metric,
             command_logs: workspace.command_logs,
             analysis_logs: workspace.analysis_logs,
             view_logs: workspace.view_logs,
@@ -1401,6 +2046,10 @@ impl WorkspaceDocument {
             .get("command_logs")
             .and_then(JsonValue::as_object)
             .ok_or_else(|| "workspace document must contain a command_logs object".to_string())?;
+        let derived_metric = match value.get("derived_metric") {
+            Some(value) => DerivedMetricDefinition::from_json_value(value)?,
+            None => default_derived_metric_for_sample(None),
+        };
         let analysis_logs_object = value
             .get("analysis_logs")
             .and_then(JsonValue::as_object);
@@ -1542,6 +2191,7 @@ impl WorkspaceDocument {
         Ok(Self {
             active_sample_id,
             sample_specs,
+            derived_metric,
             command_logs,
             analysis_logs,
             view_logs,
@@ -1562,6 +2212,11 @@ impl WorkspaceSampleSpec {
             .and_then(JsonValue::as_str)
             .unwrap_or(&id)
             .to_string();
+        let group_label = value
+            .get("group_label")
+            .and_then(JsonValue::as_str)
+            .map(normalize_group_label)
+            .unwrap_or_else(default_group_label);
         let source_kind = value
             .get("source_kind")
             .and_then(JsonValue::as_str)
@@ -1593,6 +2248,7 @@ impl WorkspaceSampleSpec {
         Ok(Self {
             id,
             display_name,
+            group_label,
             source,
         })
     }
@@ -1753,6 +2409,222 @@ pub extern "C" fn flowjoish_desktop_session_load_workspace(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_export_stats_csv(
+    session: *mut DesktopSession,
+    export_path: *const c_char,
+) -> *mut c_char {
+    if export_path.is_null() {
+        return payload_to_ptr(
+            error_json_value("stats export path pointer was null").stringify_canonical(),
+        );
+    }
+
+    let export_path = unsafe { CStr::from_ptr(export_path) };
+    match export_path.to_str() {
+        Ok(export_path) => with_session_payload(session, |session| {
+            Ok(session.export_population_stats_csv(export_path))
+        }),
+        Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_apply_active_template_to_other_samples(
+    session: *mut DesktopSession,
+) -> *mut c_char {
+    with_session_payload(session, |session| Ok(session.apply_active_template_to_other_samples()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_export_batch_stats_csv(
+    session: *mut DesktopSession,
+    export_path: *const c_char,
+) -> *mut c_char {
+    if export_path.is_null() {
+        return payload_to_ptr(
+            error_json_value("batch stats export path pointer was null").stringify_canonical(),
+        );
+    }
+
+    let export_path = unsafe { CStr::from_ptr(export_path) };
+    match export_path.to_str() {
+        Ok(export_path) => with_session_payload(session, |session| {
+            Ok(session.export_batch_population_stats_csv(export_path))
+        }),
+        Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_population_comparison_json(
+    session: *mut DesktopSession,
+    population_key: *const c_char,
+) -> *mut c_char {
+    if population_key.is_null() {
+        return payload_to_ptr(
+            error_json_value("population comparison key pointer was null").stringify_canonical(),
+        );
+    }
+
+    let population_key = unsafe { CStr::from_ptr(population_key) };
+    match population_key.to_str() {
+        Ok(population_key) => {
+            with_session_payload(session, |session| Ok(session.population_comparison(population_key)))
+        }
+        Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_export_population_comparison_csv(
+    session: *mut DesktopSession,
+    population_key: *const c_char,
+    export_path: *const c_char,
+) -> *mut c_char {
+    if population_key.is_null() {
+        return payload_to_ptr(
+            error_json_value("population comparison key pointer was null").stringify_canonical(),
+        );
+    }
+    if export_path.is_null() {
+        return payload_to_ptr(
+            error_json_value("population comparison export path pointer was null")
+                .stringify_canonical(),
+        );
+    }
+
+    let population_key = unsafe { CStr::from_ptr(population_key) };
+    let export_path = unsafe { CStr::from_ptr(export_path) };
+    match (population_key.to_str(), export_path.to_str()) {
+        (Ok(population_key), Ok(export_path)) => with_session_payload(session, |session| {
+            Ok(session.export_population_comparison_csv(
+                population_key,
+                export_path,
+            ))
+        }),
+        (Err(error), _) | (_, Err(error)) => {
+            payload_to_ptr(error_json_value(error.to_string()).stringify_canonical())
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_export_population_group_summary_csv(
+    session: *mut DesktopSession,
+    population_key: *const c_char,
+    export_path: *const c_char,
+) -> *mut c_char {
+    if population_key.is_null() {
+        return payload_to_ptr(
+            error_json_value("population group summary key pointer was null").stringify_canonical(),
+        );
+    }
+    if export_path.is_null() {
+        return payload_to_ptr(
+            error_json_value("population group summary export path pointer was null")
+                .stringify_canonical(),
+        );
+    }
+
+    let population_key = unsafe { CStr::from_ptr(population_key) };
+    let export_path = unsafe { CStr::from_ptr(export_path) };
+    match (population_key.to_str(), export_path.to_str()) {
+        (Ok(population_key), Ok(export_path)) => with_session_payload(session, |session| {
+            Ok(session.export_population_group_summary_csv(
+                population_key,
+                export_path,
+            ))
+        }),
+        (Err(error), _) | (_, Err(error)) => {
+            payload_to_ptr(error_json_value(error.to_string()).stringify_canonical())
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_set_derived_metric_json(
+    session: *mut DesktopSession,
+    metric_json: *const c_char,
+) -> *mut c_char {
+    if metric_json.is_null() {
+        return payload_to_ptr(
+            error_json_value("derived metric json pointer was null").stringify_canonical(),
+        );
+    }
+
+    let metric_json = unsafe { CStr::from_ptr(metric_json) };
+    match metric_json.to_str() {
+        Ok(metric_json) => with_session_payload(session, |session| {
+            Ok(session.set_derived_metric_from_json(metric_json))
+        }),
+        Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_export_population_derived_metric_csv(
+    session: *mut DesktopSession,
+    population_key: *const c_char,
+    export_path: *const c_char,
+) -> *mut c_char {
+    if population_key.is_null() {
+        return payload_to_ptr(
+            error_json_value("population derived metric key pointer was null")
+                .stringify_canonical(),
+        );
+    }
+    if export_path.is_null() {
+        return payload_to_ptr(
+            error_json_value("population derived metric export path pointer was null")
+                .stringify_canonical(),
+        );
+    }
+
+    let population_key = unsafe { CStr::from_ptr(population_key) };
+    let export_path = unsafe { CStr::from_ptr(export_path) };
+    match (population_key.to_str(), export_path.to_str()) {
+        (Ok(population_key), Ok(export_path)) => with_session_payload(session, |session| {
+            Ok(session.export_population_derived_metric_csv(
+                population_key,
+                export_path,
+            ))
+        }),
+        (Err(error), _) | (_, Err(error)) => {
+            payload_to_ptr(error_json_value(error.to_string()).stringify_canonical())
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_set_sample_group_label(
+    session: *mut DesktopSession,
+    sample_id: *const c_char,
+    group_label: *const c_char,
+) -> *mut c_char {
+    if sample_id.is_null() {
+        return payload_to_ptr(
+            error_json_value("sample group label sample_id pointer was null").stringify_canonical(),
+        );
+    }
+    if group_label.is_null() {
+        return payload_to_ptr(
+            error_json_value("sample group label pointer was null").stringify_canonical(),
+        );
+    }
+
+    let sample_id = unsafe { CStr::from_ptr(sample_id) };
+    let group_label = unsafe { CStr::from_ptr(group_label) };
+    match (sample_id.to_str(), group_label.to_str()) {
+        (Ok(sample_id), Ok(group_label)) => with_session_payload(session, |session| {
+            Ok(session.set_sample_group_label(sample_id, group_label))
+        }),
+        (Err(error), _) | (_, Err(error)) => {
+            payload_to_ptr(error_json_value(error.to_string()).stringify_canonical())
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn flowjoish_desktop_session_free(ptr: *mut DesktopSession) {
     if ptr.is_null() {
         return;
@@ -1872,6 +2744,10 @@ fn sample_json(
         (
             "display_name",
             JsonValue::String(sample_info.display_name.clone()),
+        ),
+        (
+            "group_label",
+            JsonValue::String(sample_info.group_label.clone()),
         ),
         (
             "source_path",
@@ -1997,6 +2873,10 @@ fn workspace_sample_json(sample_id: &str, sample_info: &DesktopSampleInfo) -> Js
             JsonValue::String(sample_info.display_name.clone()),
         ),
         (
+            "group_label",
+            JsonValue::String(sample_info.group_label.clone()),
+        ),
+        (
             "source_kind",
             JsonValue::String(source.kind_name().to_string()),
         ),
@@ -2024,6 +2904,7 @@ fn samples_json(
                 Some(JsonValue::object([
                     ("id", JsonValue::String(sample_id.clone())),
                     ("display_name", JsonValue::String(info.display_name.clone())),
+                    ("group_label", JsonValue::String(info.group_label.clone())),
                     (
                         "source_path",
                         match &info.source_path {
@@ -2098,6 +2979,602 @@ fn commands_json(log: &CommandLog) -> JsonValue {
             })
             .collect(),
     )
+}
+
+fn population_stats_csv(stats: &[PopulationStats]) -> String {
+    let mut output = String::from(
+        "sample_id,population_key,population_id,parent_population,matched_events,parent_events,frequency_of_all,frequency_of_parent,channel,mean,median\n",
+    );
+    for population in stats {
+        let key = stats_key(&population.population_id);
+        let parent_population = population.parent_population.as_deref().unwrap_or("");
+        for channel in &population.channel_stats {
+            let _ = writeln!(
+                output,
+                "{},{},{},{},{},{},{:.6},{:.6},{},{},{}",
+                csv_field(&population.sample_id),
+                csv_field(&key),
+                csv_field(&population.population_id),
+                csv_field(parent_population),
+                population.matched_events,
+                population.parent_events,
+                population.frequency_of_all,
+                population.frequency_of_parent,
+                csv_field(&channel.channel),
+                csv_number(channel.mean),
+                csv_number(channel.median),
+            );
+        }
+    }
+    output
+}
+
+fn population_comparison_row_json(row: PopulationComparisonRow) -> JsonValue {
+    JsonValue::object([
+        ("sample_id", JsonValue::String(row.sample_id)),
+        ("display_name", JsonValue::String(row.display_name)),
+        ("group_label", JsonValue::String(row.group_label)),
+        (
+            "source_path",
+            match row.source_path {
+                Some(path) => JsonValue::String(path),
+                None => JsonValue::Null,
+            },
+        ),
+        (
+            "is_active_sample",
+            JsonValue::Bool(row.is_active_sample),
+        ),
+        ("status", JsonValue::String(row.status)),
+        ("matched_events", optional_usize_json(row.matched_events)),
+        ("parent_events", optional_usize_json(row.parent_events)),
+        (
+            "frequency_of_all",
+            optional_number_json(row.frequency_of_all),
+        ),
+        (
+            "frequency_of_parent",
+            optional_number_json(row.frequency_of_parent),
+        ),
+        (
+            "delta_frequency_of_all",
+            optional_number_json(row.delta_frequency_of_all),
+        ),
+        (
+            "delta_frequency_of_parent",
+            optional_number_json(row.delta_frequency_of_parent),
+        ),
+        (
+            "derived_metric_status",
+            JsonValue::String(row.derived_metric_status),
+        ),
+        (
+            "derived_metric_value",
+            optional_number_json(row.derived_metric_value),
+        ),
+        (
+            "derived_metric_delta_value",
+            optional_number_json(row.derived_metric_delta_value),
+        ),
+        (
+            "derived_metric_message",
+            match row.derived_metric_message {
+                Some(message) => JsonValue::String(message),
+                None => JsonValue::Null,
+            },
+        ),
+    ])
+}
+
+fn population_group_summary_row_json(row: PopulationGroupSummaryRow) -> JsonValue {
+    JsonValue::object([
+        ("group_label", JsonValue::String(row.group_label)),
+        ("is_active_group", JsonValue::Bool(row.is_active_group)),
+        ("sample_count", JsonValue::Number(row.sample_count as f64)),
+        (
+            "available_sample_count",
+            JsonValue::Number(row.available_sample_count as f64),
+        ),
+        (
+            "missing_sample_count",
+            JsonValue::Number(row.missing_sample_count as f64),
+        ),
+        (
+            "total_matched_events",
+            JsonValue::Number(row.total_matched_events as f64),
+        ),
+        (
+            "total_parent_events",
+            JsonValue::Number(row.total_parent_events as f64),
+        ),
+        (
+            "mean_frequency_of_all",
+            optional_number_json(row.mean_frequency_of_all),
+        ),
+        (
+            "mean_frequency_of_parent",
+            optional_number_json(row.mean_frequency_of_parent),
+        ),
+        (
+            "delta_mean_frequency_of_all",
+            optional_number_json(row.delta_mean_frequency_of_all),
+        ),
+        (
+            "delta_mean_frequency_of_parent",
+            optional_number_json(row.delta_mean_frequency_of_parent),
+        ),
+        (
+            "mean_derived_metric_value",
+            optional_number_json(row.mean_derived_metric_value),
+        ),
+        (
+            "delta_mean_derived_metric_value",
+            optional_number_json(row.delta_mean_derived_metric_value),
+        ),
+    ])
+}
+
+fn population_comparison_csv(
+    population_key: &str,
+    population_id: &str,
+    active_sample_id: &str,
+    active_group_label: &str,
+    rows: &[PopulationComparisonRow],
+) -> String {
+    let mut output = String::from(
+        "population_key,population_id,active_sample_id,active_group_label,sample_id,display_name,group_label,source_path,status,is_active_sample,matched_events,parent_events,frequency_of_all,frequency_of_parent,delta_frequency_of_all,delta_frequency_of_parent\n",
+    );
+    for row in rows {
+        let _ = writeln!(
+            output,
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            csv_field(population_key),
+            csv_field(population_id),
+            csv_field(active_sample_id),
+            csv_field(active_group_label),
+            csv_field(&row.sample_id),
+            csv_field(&row.display_name),
+            csv_field(&row.group_label),
+            csv_field(row.source_path.as_deref().unwrap_or("")),
+            csv_field(&row.status),
+            row.is_active_sample,
+            csv_optional_usize(row.matched_events),
+            csv_optional_usize(row.parent_events),
+            csv_number(row.frequency_of_all),
+            csv_number(row.frequency_of_parent),
+            csv_number(row.delta_frequency_of_all),
+            csv_number(row.delta_frequency_of_parent),
+        );
+    }
+    output
+}
+
+fn population_group_summary_csv(
+    population_key: &str,
+    population_id: &str,
+    active_sample_id: &str,
+    active_group_label: &str,
+    rows: &[PopulationGroupSummaryRow],
+) -> String {
+    let mut output = String::from(
+        "population_key,population_id,active_sample_id,active_group_label,group_label,is_active_group,sample_count,available_sample_count,missing_sample_count,total_matched_events,total_parent_events,mean_frequency_of_all,mean_frequency_of_parent,delta_mean_frequency_of_all,delta_mean_frequency_of_parent,mean_derived_metric_value,delta_mean_derived_metric_value\n",
+    );
+    for row in rows {
+        let _ = writeln!(
+            output,
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            csv_field(population_key),
+            csv_field(population_id),
+            csv_field(active_sample_id),
+            csv_field(active_group_label),
+            csv_field(&row.group_label),
+            row.is_active_group,
+            row.sample_count,
+            row.available_sample_count,
+            row.missing_sample_count,
+            row.total_matched_events,
+            row.total_parent_events,
+            csv_number(row.mean_frequency_of_all),
+            csv_number(row.mean_frequency_of_parent),
+            csv_number(row.delta_mean_frequency_of_all),
+            csv_number(row.delta_mean_frequency_of_parent),
+            csv_number(row.mean_derived_metric_value),
+            csv_number(row.delta_mean_derived_metric_value),
+        );
+    }
+    output
+}
+
+fn population_derived_metric_csv(
+    population_key: &str,
+    population_id: &str,
+    active_sample_id: &str,
+    metric: &DerivedMetricDefinition,
+    rows: &[PopulationComparisonRow],
+) -> String {
+    let mut output = String::from(
+        "population_key,population_id,active_sample_id,metric_kind,metric_label,sample_id,display_name,group_label,status,is_active_sample,value,delta_value,message\n",
+    );
+    for row in rows {
+        let _ = writeln!(
+            output,
+            "{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            csv_field(population_key),
+            csv_field(population_id),
+            csv_field(active_sample_id),
+            csv_field(metric.kind_name()),
+            csv_field(&metric.label()),
+            csv_field(&row.sample_id),
+            csv_field(&row.display_name),
+            csv_field(&row.group_label),
+            csv_field(&row.derived_metric_status),
+            row.is_active_sample,
+            csv_number(row.derived_metric_value),
+            csv_number(row.derived_metric_delta_value),
+            csv_field(row.derived_metric_message.as_deref().unwrap_or("")),
+        );
+    }
+    output
+}
+
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
+fn csv_number(value: Option<f64>) -> String {
+    value.map(|value| format!("{value:.6}")).unwrap_or_default()
+}
+
+fn csv_optional_usize(value: Option<usize>) -> String {
+    value.map(|value| value.to_string()).unwrap_or_default()
+}
+
+fn optional_number_json(value: Option<f64>) -> JsonValue {
+    match value {
+        Some(value) => JsonValue::Number(value),
+        None => JsonValue::Null,
+    }
+}
+
+fn optional_usize_json(value: Option<usize>) -> JsonValue {
+    match value {
+        Some(value) => JsonValue::Number(value as f64),
+        None => JsonValue::Null,
+    }
+}
+
+fn default_group_label() -> String {
+    "Ungrouped".to_string()
+}
+
+fn normalize_group_label(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        default_group_label()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn stats_key(population_id: &str) -> String {
+    if population_id == "All Events" {
+        "__all__".to_string()
+    } else {
+        population_id.to_string()
+    }
+}
+
+fn find_population_stats_for_key(
+    sample: &SampleFrame,
+    state: &WorkspaceState,
+    population_key: &str,
+) -> Result<Option<PopulationStats>, String> {
+    let stats = compute_population_stats_table(sample, state).map_err(|error| error.to_string())?;
+    Ok(stats
+        .into_iter()
+        .find(|entry| stats_key(&entry.population_id) == population_key))
+}
+
+fn population_group_summaries(
+    rows: &[PopulationComparisonRow],
+    active_group_label: &str,
+) -> Vec<PopulationGroupSummaryRow> {
+    let mut grouped = BTreeMap::<String, Vec<&PopulationComparisonRow>>::new();
+    for row in rows {
+        grouped
+            .entry(row.group_label.clone())
+            .or_default()
+            .push(row);
+    }
+
+    let mut summaries = grouped
+        .into_iter()
+        .map(|(group_label, rows)| {
+            let sample_count = rows.len();
+            let available_rows = rows
+                .iter()
+                .filter(|row| row.status == "available")
+                .copied()
+                .collect::<Vec<_>>();
+            let available_sample_count = available_rows.len();
+            let missing_sample_count = sample_count.saturating_sub(available_sample_count);
+            let total_matched_events = available_rows
+                .iter()
+                .filter_map(|row| row.matched_events)
+                .sum::<usize>();
+            let total_parent_events = available_rows
+                .iter()
+                .filter_map(|row| row.parent_events)
+                .sum::<usize>();
+            let mean_frequency_of_all = average_option(
+                &available_rows
+                    .iter()
+                    .filter_map(|row| row.frequency_of_all)
+                    .collect::<Vec<_>>(),
+            );
+            let mean_frequency_of_parent = average_option(
+                &available_rows
+                    .iter()
+                    .filter_map(|row| row.frequency_of_parent)
+                    .collect::<Vec<_>>(),
+            );
+            let mean_derived_metric_value = average_option(
+                &available_rows
+                    .iter()
+                    .filter_map(|row| row.derived_metric_value)
+                    .collect::<Vec<_>>(),
+            );
+
+            PopulationGroupSummaryRow {
+                is_active_group: group_label == active_group_label,
+                group_label,
+                sample_count,
+                available_sample_count,
+                missing_sample_count,
+                total_matched_events,
+                total_parent_events,
+                mean_frequency_of_all,
+                mean_frequency_of_parent,
+                delta_mean_frequency_of_all: None,
+                delta_mean_frequency_of_parent: None,
+                mean_derived_metric_value,
+                delta_mean_derived_metric_value: None,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let active_baseline = summaries
+        .iter()
+        .find(|row| row.group_label == active_group_label)
+        .map(|row| {
+            (
+                row.mean_frequency_of_all,
+                row.mean_frequency_of_parent,
+                row.mean_derived_metric_value,
+            )
+        });
+
+    if let Some((baseline_all, baseline_parent, baseline_metric)) = active_baseline {
+        for row in &mut summaries {
+            row.delta_mean_frequency_of_all = match (row.mean_frequency_of_all, baseline_all) {
+                (Some(value), Some(baseline)) => Some(value - baseline),
+                _ => None,
+            };
+            row.delta_mean_frequency_of_parent =
+                match (row.mean_frequency_of_parent, baseline_parent) {
+                    (Some(value), Some(baseline)) => Some(value - baseline),
+                    _ => None,
+                };
+            row.delta_mean_derived_metric_value =
+                match (row.mean_derived_metric_value, baseline_metric) {
+                    (Some(value), Some(baseline)) => Some(value - baseline),
+                    _ => None,
+                };
+        }
+    }
+
+    summaries.sort_by(|left, right| {
+        right.is_active_group
+            .cmp(&left.is_active_group)
+            .then_with(|| left.group_label.cmp(&right.group_label))
+    });
+    summaries
+}
+
+fn average_option(values: &[f64]) -> Option<f64> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+}
+
+fn default_derived_metric_for_sample(sample: Option<&SampleFrame>) -> DerivedMetricDefinition {
+    let channel = sample
+        .and_then(default_metric_channel_for_sample)
+        .unwrap_or_else(|| "FSC-A".to_string());
+    DerivedMetricDefinition::PositiveFraction {
+        channel,
+        threshold: 1.0,
+    }
+}
+
+fn default_metric_channel_for_sample(sample: &SampleFrame) -> Option<String> {
+    sample
+        .channels()
+        .iter()
+        .find(|channel| !is_time_channel(channel) && !is_structural_channel(channel))
+        .cloned()
+        .or_else(|| sample.channels().first().cloned())
+}
+
+fn validate_derived_metric_for_sample(
+    sample: &SampleFrame,
+    metric: &DerivedMetricDefinition,
+) -> Result<(), String> {
+    match metric {
+        DerivedMetricDefinition::PositiveFraction { channel, threshold } => {
+            if sample.channel_index(channel).is_none() {
+                return Err(format!(
+                    "derived metric channel '{}' is not present in the active sample",
+                    channel
+                ));
+            }
+            if !threshold.is_finite() {
+                return Err("derived metric threshold must be finite".to_string());
+            }
+            Ok(())
+        }
+        DerivedMetricDefinition::MeanRatio {
+            numerator_channel,
+            denominator_channel,
+        } => {
+            if sample.channel_index(numerator_channel).is_none() {
+                return Err(format!(
+                    "derived metric numerator channel '{}' is not present in the active sample",
+                    numerator_channel
+                ));
+            }
+            if sample.channel_index(denominator_channel).is_none() {
+                return Err(format!(
+                    "derived metric denominator channel '{}' is not present in the active sample",
+                    denominator_channel
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn evaluate_derived_metric(
+    sample: &SampleFrame,
+    state: &WorkspaceState,
+    population_key: &str,
+    metric: &DerivedMetricDefinition,
+) -> DerivedMetricEvaluation {
+    let mask = if population_key == "__all__" {
+        None
+    } else {
+        match state.populations.get(population_key) {
+            Some(population) => Some(&population.mask),
+            None => {
+                return DerivedMetricEvaluation {
+                    status: "missing_population".to_string(),
+                    value: None,
+                    message: Some(
+                        "This population is not present in the current gate history for this sample."
+                            .to_string(),
+                    ),
+                };
+            }
+        }
+    };
+
+    match metric {
+        DerivedMetricDefinition::PositiveFraction { channel, threshold } => {
+            let Some(channel_index) = sample.channel_index(channel) else {
+                return DerivedMetricEvaluation {
+                    status: "missing_channel".to_string(),
+                    value: None,
+                    message: Some(format!(
+                        "Channel '{}' is not present in this sample.",
+                        channel
+                    )),
+                };
+            };
+
+            let mut matched = 0usize;
+            let mut positives = 0usize;
+            for (event_index, row) in sample.events().iter().enumerate() {
+                if mask.is_some_and(|mask| !mask.contains(event_index)) {
+                    continue;
+                }
+                matched += 1;
+                if row[channel_index] >= *threshold {
+                    positives += 1;
+                }
+            }
+
+            if matched == 0 {
+                DerivedMetricEvaluation {
+                    status: "empty_population".to_string(),
+                    value: None,
+                    message: Some("The selected population has zero matched events.".to_string()),
+                }
+            } else {
+                DerivedMetricEvaluation {
+                    status: "available".to_string(),
+                    value: Some(positives as f64 / matched as f64),
+                    message: None,
+                }
+            }
+        }
+        DerivedMetricDefinition::MeanRatio {
+            numerator_channel,
+            denominator_channel,
+        } => {
+            let Some(numerator_index) = sample.channel_index(numerator_channel) else {
+                return DerivedMetricEvaluation {
+                    status: "missing_channel".to_string(),
+                    value: None,
+                    message: Some(format!(
+                        "Channel '{}' is not present in this sample.",
+                        numerator_channel
+                    )),
+                };
+            };
+            let Some(denominator_index) = sample.channel_index(denominator_channel) else {
+                return DerivedMetricEvaluation {
+                    status: "missing_channel".to_string(),
+                    value: None,
+                    message: Some(format!(
+                        "Channel '{}' is not present in this sample.",
+                        denominator_channel
+                    )),
+                };
+            };
+
+            let mut matched = 0usize;
+            let mut numerator_total = 0.0;
+            let mut denominator_total = 0.0;
+            for (event_index, row) in sample.events().iter().enumerate() {
+                if mask.is_some_and(|mask| !mask.contains(event_index)) {
+                    continue;
+                }
+                matched += 1;
+                numerator_total += row[numerator_index];
+                denominator_total += row[denominator_index];
+            }
+
+            if matched == 0 {
+                DerivedMetricEvaluation {
+                    status: "empty_population".to_string(),
+                    value: None,
+                    message: Some("The selected population has zero matched events.".to_string()),
+                }
+            } else {
+                let numerator_mean = numerator_total / matched as f64;
+                let denominator_mean = denominator_total / matched as f64;
+                if denominator_mean.abs() <= 1e-12 {
+                    DerivedMetricEvaluation {
+                        status: "undefined".to_string(),
+                        value: None,
+                        message: Some("The denominator mean is zero for this sample.".to_string()),
+                    }
+                } else {
+                    DerivedMetricEvaluation {
+                        status: "available".to_string(),
+                        value: Some(numerator_mean / denominator_mean),
+                        message: None,
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn analysis_actions_json(log: &AnalysisActionLog) -> JsonValue {
@@ -2285,59 +3762,147 @@ fn populations_json(sample: &SampleFrame, state: &WorkspaceState) -> JsonValue {
     JsonValue::Array(values)
 }
 
+fn population_stats_json(sample: &SampleFrame, state: &WorkspaceState) -> Result<JsonValue, String> {
+    let stats = compute_population_stats_table(sample, state).map_err(|error| error.to_string())?;
+    Ok(JsonValue::Object(
+        stats.into_iter()
+            .map(|stats| {
+                let key = stats_key(&stats.population_id);
+                (key, population_stats_entry_json(stats))
+            })
+            .collect::<BTreeMap<_, _>>(),
+    ))
+}
+
+fn population_stats_entry_json(stats: PopulationStats) -> JsonValue {
+    JsonValue::object([
+        (
+            "key",
+            JsonValue::String(stats_key(&stats.population_id)),
+        ),
+        (
+            "population_id",
+            JsonValue::String(stats.population_id),
+        ),
+        (
+            "parent_population",
+            match stats.parent_population {
+                Some(parent) => JsonValue::String(parent),
+                None => JsonValue::Null,
+            },
+        ),
+        (
+            "matched_events",
+            JsonValue::Number(stats.matched_events as f64),
+        ),
+        (
+            "parent_events",
+            JsonValue::Number(stats.parent_events as f64),
+        ),
+        (
+            "frequency_of_all",
+            JsonValue::Number(stats.frequency_of_all),
+        ),
+        (
+            "frequency_of_parent",
+            JsonValue::Number(stats.frequency_of_parent),
+        ),
+        (
+            "channel_stats",
+            JsonValue::Array(
+                stats.channel_stats
+                    .into_iter()
+                    .map(|channel| {
+                        JsonValue::object([
+                            ("channel", JsonValue::String(channel.channel)),
+                            (
+                                "mean",
+                                match channel.mean {
+                                    Some(value) => JsonValue::Number(value),
+                                    None => JsonValue::Null,
+                                },
+                            ),
+                            (
+                                "median",
+                                match channel.median {
+                                    Some(value) => JsonValue::Number(value),
+                                    None => JsonValue::Null,
+                                },
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
 fn plots_json(
     sample: &SampleFrame,
     state: &WorkspaceState,
-    plot_specs: &[(String, String, String, String)],
+    plot_specs: &[PlotSpec],
     plot_ranges: &BTreeMap<String, PlotRangeState>,
 ) -> Result<JsonValue, String> {
     let plots = plot_specs
         .into_iter()
-        .map(|(id, title, x_channel, y_channel)| {
-            plot_json(
-                sample,
-                state,
-                id,
-                title,
-                x_channel,
-                y_channel,
-                plot_ranges.get(id),
-            )
-        })
+        .map(|plot| plot_json(sample, state, plot, plot_ranges.get(&plot.id)))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(JsonValue::Array(plots))
 }
 
-fn default_plot_specs(sample: &SampleFrame) -> Vec<(String, String, String, String)> {
+const HISTOGRAM_BIN_COUNT: usize = 32;
+
+fn default_plot_specs(sample: &SampleFrame) -> Vec<PlotSpec> {
     let mut plots = Vec::new();
 
     if let Some((x_channel, y_channel)) = preferred_scatter_pair(sample) {
-        plots.push((
-            plot_id_for_channels(x_channel, y_channel),
-            format!("{x_channel} vs {y_channel}"),
-            x_channel.to_string(),
-            y_channel.to_string(),
-        ));
+        plots.push(PlotSpec {
+            id: plot_id_for_channels(x_channel, y_channel),
+            title: format!("{x_channel} vs {y_channel}"),
+            kind: PlotKind::Scatter,
+            x_channel: x_channel.to_string(),
+            y_channel: Some(y_channel.to_string()),
+        });
     }
 
     if let Some((x_channel, y_channel)) = secondary_pair(sample, &plots) {
-        plots.push((
-            plot_id_for_channels(&x_channel, &y_channel),
-            format!("{x_channel} vs {y_channel}"),
+        plots.push(PlotSpec {
+            id: plot_id_for_channels(&x_channel, &y_channel),
+            title: format!("{x_channel} vs {y_channel}"),
+            kind: PlotKind::Scatter,
             x_channel,
-            y_channel,
-        ));
+            y_channel: Some(y_channel),
+        });
+    }
+
+    if let Some(channel) = histogram_channel(sample) {
+        plots.push(PlotSpec {
+            id: plot_id_for_histogram(&channel),
+            title: format!("{channel} histogram"),
+            kind: PlotKind::Histogram,
+            x_channel: channel,
+            y_channel: None,
+        });
     }
 
     if plots.is_empty() {
         let channels = sample.channels();
         if channels.len() >= 2 {
-            plots.push((
-                plot_id_for_channels(&channels[0], &channels[1]),
-                format!("{} vs {}", channels[0], channels[1]),
-                channels[0].clone(),
-                channels[1].clone(),
-            ));
+            plots.push(PlotSpec {
+                id: plot_id_for_channels(&channels[0], &channels[1]),
+                title: format!("{} vs {}", channels[0], channels[1]),
+                kind: PlotKind::Scatter,
+                x_channel: channels[0].clone(),
+                y_channel: Some(channels[1].clone()),
+            });
+        } else if let Some(channel) = channels.first() {
+            plots.push(PlotSpec {
+                id: plot_id_for_histogram(channel),
+                title: format!("{channel} histogram"),
+                kind: PlotKind::Histogram,
+                x_channel: channel.clone(),
+                y_channel: None,
+            });
         }
     }
 
@@ -2347,15 +3912,31 @@ fn default_plot_specs(sample: &SampleFrame) -> Vec<(String, String, String, Stri
 fn plot_json(
     sample: &SampleFrame,
     state: &WorkspaceState,
-    id: &str,
-    title: &str,
-    x_channel: &str,
-    y_channel: &str,
+    plot: &PlotSpec,
     view_range: Option<&PlotRangeState>,
 ) -> Result<JsonValue, String> {
+    let auto_range = auto_plot_range(sample, plot)?;
+    let range = view_range.unwrap_or(&auto_range);
+
+    match plot.kind {
+        PlotKind::Scatter => scatter_plot_json(sample, state, plot, range),
+        PlotKind::Histogram => histogram_plot_json(sample, state, plot, range),
+    }
+}
+
+fn scatter_plot_json(
+    sample: &SampleFrame,
+    state: &WorkspaceState,
+    plot: &PlotSpec,
+    range: &PlotRangeState,
+) -> Result<JsonValue, String> {
+    let y_channel = plot
+        .y_channel
+        .as_deref()
+        .ok_or_else(|| format!("scatter plot '{}' is missing y_channel", plot.id))?;
     let x_index = sample
-        .channel_index(x_channel)
-        .ok_or_else(|| format!("missing channel '{}'", x_channel))?;
+        .channel_index(&plot.x_channel)
+        .ok_or_else(|| format!("missing channel '{}'", plot.x_channel))?;
     let y_index = sample
         .channel_index(y_channel)
         .ok_or_else(|| format!("missing channel '{}'", y_channel))?;
@@ -2375,21 +3956,11 @@ fn plot_json(
         );
     }
 
-    let auto_range = auto_plot_range(
-        sample,
-        &(
-            id.to_string(),
-            title.to_string(),
-            x_channel.to_string(),
-            y_channel.to_string(),
-        ),
-    )?;
-    let range = view_range.unwrap_or(&auto_range);
-
     Ok(JsonValue::object([
-        ("id", JsonValue::String(id.to_string())),
-        ("title", JsonValue::String(title.to_string())),
-        ("x_channel", JsonValue::String(x_channel.to_string())),
+        ("kind", JsonValue::String("scatter".to_string())),
+        ("id", JsonValue::String(plot.id.clone())),
+        ("title", JsonValue::String(plot.title.clone())),
+        ("x_channel", JsonValue::String(plot.x_channel.clone())),
         ("y_channel", JsonValue::String(y_channel.to_string())),
         ("view_summary", JsonValue::String(range.summary.clone())),
         ("all_points", JsonValue::Array(all_points)),
@@ -2411,44 +3982,149 @@ fn plot_json(
     ]))
 }
 
-fn auto_plot_range(
+fn histogram_plot_json(
     sample: &SampleFrame,
-    plot: &(String, String, String, String),
+    state: &WorkspaceState,
+    plot: &PlotSpec,
+    range: &PlotRangeState,
+) -> Result<JsonValue, String> {
+    let channel_index = sample
+        .channel_index(&plot.x_channel)
+        .ok_or_else(|| format!("missing channel '{}'", plot.x_channel))?;
+    let all_bins = histogram_bins(
+        sample,
+        channel_index,
+        range.x_min,
+        range.x_max,
+        HISTOGRAM_BIN_COUNT,
+        None,
+    );
+    let mut population_bins = BTreeMap::new();
+    population_bins.insert("__all__".to_string(), JsonValue::Array(all_bins.clone()));
+    for population in state.populations.values() {
+        population_bins.insert(
+            population.population_id.clone(),
+            JsonValue::Array(histogram_bins(
+                sample,
+                channel_index,
+                range.x_min,
+                range.x_max,
+                HISTOGRAM_BIN_COUNT,
+                Some(&population.mask),
+            )),
+        );
+    }
+
+    Ok(JsonValue::object([
+        ("kind", JsonValue::String("histogram".to_string())),
+        ("id", JsonValue::String(plot.id.clone())),
+        ("title", JsonValue::String(plot.title.clone())),
+        ("x_channel", JsonValue::String(plot.x_channel.clone())),
+        ("y_channel", JsonValue::String("Count".to_string())),
+        ("view_summary", JsonValue::String(range.summary.clone())),
+        ("all_bins", JsonValue::Array(all_bins)),
+        ("population_bins", JsonValue::Object(population_bins)),
+        (
+            "x_range",
+            JsonValue::object([
+                ("min", JsonValue::Number(range.x_min)),
+                ("max", JsonValue::Number(range.x_max)),
+            ]),
+        ),
+        (
+            "y_range",
+            JsonValue::object([
+                ("min", JsonValue::Number(range.y_min)),
+                ("max", JsonValue::Number(range.y_max)),
+            ]),
+        ),
+    ]))
+}
+
+fn auto_plot_range(sample: &SampleFrame, plot: &PlotSpec) -> Result<PlotRangeState, String> {
+    match plot.kind {
+        PlotKind::Scatter => {
+            let y_channel = plot
+                .y_channel
+                .as_deref()
+                .ok_or_else(|| format!("scatter plot '{}' is missing y_channel", plot.id))?;
+            let x_index = sample
+                .channel_index(&plot.x_channel)
+                .ok_or_else(|| format!("missing channel '{}'", plot.x_channel))?;
+            let y_index = sample
+                .channel_index(y_channel)
+                .ok_or_else(|| format!("missing channel '{}'", y_channel))?;
+            let (x_min, x_max) = axis_bounds(sample, x_index);
+            let (y_min, y_max) = axis_bounds(sample, y_index);
+            Ok(PlotRangeState {
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+                summary: "Auto extents".to_string(),
+            })
+        }
+        PlotKind::Histogram => histogram_range_for_mask(
+            sample,
+            plot,
+            None,
+            0.08,
+            "Auto extents".to_string(),
+        ),
+    }
+}
+
+fn histogram_range_for_mask(
+    sample: &SampleFrame,
+    plot: &PlotSpec,
+    mask: Option<&BitMask>,
+    padding_fraction: f64,
+    summary: String,
 ) -> Result<PlotRangeState, String> {
-    let x_index = sample
-        .channel_index(&plot.2)
-        .ok_or_else(|| format!("missing channel '{}'", plot.2))?;
-    let y_index = sample
-        .channel_index(&plot.3)
-        .ok_or_else(|| format!("missing channel '{}'", plot.3))?;
-    let (x_min, x_max) = axis_bounds(sample, x_index);
-    let (y_min, y_max) = axis_bounds(sample, y_index);
+    let channel_index = sample
+        .channel_index(&plot.x_channel)
+        .ok_or_else(|| format!("missing channel '{}'", plot.x_channel))?;
+    let Some((value_min, value_max)) = channel_bounds(sample, channel_index, mask) else {
+        return Ok(PlotRangeState {
+            x_min: 0.0,
+            x_max: 1.0,
+            y_min: 0.0,
+            y_max: 1.0,
+            summary,
+        });
+    };
+    let (x_min, x_max) = padded_bounds(value_min, value_max, padding_fraction);
+    let bins = histogram_bins(
+        sample,
+        channel_index,
+        x_min,
+        x_max,
+        HISTOGRAM_BIN_COUNT,
+        mask,
+    );
+    let max_count = bins
+        .iter()
+        .filter_map(|bin| bin.get("count").and_then(JsonValue::as_f64))
+        .fold(0.0, f64::max);
     Ok(PlotRangeState {
         x_min,
         x_max,
-        y_min,
-        y_max,
-        summary: "Auto extents".to_string(),
+        y_min: 0.0,
+        y_max: (max_count * 1.08).max(1.0),
+        summary,
     })
 }
 
 fn focus_plot_range(
     sample: &SampleFrame,
     state: &WorkspaceState,
-    plot: &(String, String, String, String),
+    plot: &PlotSpec,
     population_id: &str,
     padding_fraction: f64,
 ) -> Result<PlotRangeState, String> {
     if !padding_fraction.is_finite() || padding_fraction <= 0.0 {
         return Err("plot focus padding_fraction must be a positive finite number".to_string());
     }
-
-    let x_index = sample
-        .channel_index(&plot.2)
-        .ok_or_else(|| format!("missing channel '{}'", plot.2))?;
-    let y_index = sample
-        .channel_index(&plot.3)
-        .ok_or_else(|| format!("missing channel '{}'", plot.3))?;
 
     let focus_mask = if population_id == "__all__" {
         None
@@ -2462,29 +4138,55 @@ fn focus_plot_range(
             }
         }
     };
-    let Some((x_min, x_max, y_min, y_max)) = plot_bounds(sample, x_index, y_index, focus_mask) else {
-        let mut fallback = auto_plot_range(sample, plot)?;
-        fallback.summary = if population_id == "__all__" {
-            "Auto extents".to_string()
-        } else {
-            format!("Auto extents ({population_id} unavailable)")
-        };
-        return Ok(fallback);
+    let summary = if population_id == "__all__" {
+        "Focused on All Events".to_string()
+    } else {
+        format!("Focused on {population_id}")
     };
 
-    let (x_min, x_max) = padded_bounds(x_min, x_max, padding_fraction);
-    let (y_min, y_max) = padded_bounds(y_min, y_max, padding_fraction);
-    Ok(PlotRangeState {
-        x_min,
-        x_max,
-        y_min,
-        y_max,
-        summary: if population_id == "__all__" {
-            "Focused on All Events".to_string()
-        } else {
-            format!("Focused on {population_id}")
-        },
-    })
+    match plot.kind {
+        PlotKind::Scatter => {
+            let y_channel = plot
+                .y_channel
+                .as_deref()
+                .ok_or_else(|| format!("scatter plot '{}' is missing y_channel", plot.id))?;
+            let x_index = sample
+                .channel_index(&plot.x_channel)
+                .ok_or_else(|| format!("missing channel '{}'", plot.x_channel))?;
+            let y_index = sample
+                .channel_index(y_channel)
+                .ok_or_else(|| format!("missing channel '{}'", y_channel))?;
+
+            let Some((x_min, x_max, y_min, y_max)) =
+                plot_bounds(sample, x_index, y_index, focus_mask)
+            else {
+                let mut fallback = auto_plot_range(sample, plot)?;
+                fallback.summary = if population_id == "__all__" {
+                    "Auto extents".to_string()
+                } else {
+                    format!("Auto extents ({population_id} unavailable)")
+                };
+                return Ok(fallback);
+            };
+
+            let (x_min, x_max) = padded_bounds(x_min, x_max, padding_fraction);
+            let (y_min, y_max) = padded_bounds(y_min, y_max, padding_fraction);
+            Ok(PlotRangeState {
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+                summary,
+            })
+        }
+        PlotKind::Histogram => histogram_range_for_mask(
+            sample,
+            plot,
+            focus_mask,
+            padding_fraction,
+            summary,
+        ),
+    }
 }
 
 fn scale_plot_range(range: &PlotRangeState, factor: f64) -> Result<PlotRangeState, String> {
@@ -2560,11 +4262,15 @@ fn preferred_scatter_pair(sample: &SampleFrame) -> Option<(&str, &str)> {
 
 fn secondary_pair(
     sample: &SampleFrame,
-    plots: &[(String, String, String, String)],
+    plots: &[PlotSpec],
 ) -> Option<(String, String)> {
     let primary_channels = plots
         .first()
-        .map(|(_, _, x_channel, y_channel)| (x_channel.as_str(), y_channel.as_str()));
+        .and_then(|plot| {
+            plot.y_channel
+                .as_deref()
+                .map(|y_channel| (plot.x_channel.as_str(), y_channel))
+        });
 
     let fluorescence_channels = sample
         .channels()
@@ -2608,12 +4314,31 @@ fn secondary_pair(
     None
 }
 
+fn histogram_channel(sample: &SampleFrame) -> Option<String> {
+    sample
+        .channels()
+        .iter()
+        .find(|channel| !is_time_channel(channel) && !is_structural_channel(channel))
+        .cloned()
+        .or_else(|| {
+            sample
+                .channels()
+                .iter()
+                .find(|channel| !is_time_channel(channel))
+                .cloned()
+        })
+}
+
 fn plot_id_for_channels(x_channel: &str, y_channel: &str) -> String {
     format!(
         "plot_{}_{}",
         sanitize_plot_segment(x_channel),
         sanitize_plot_segment(y_channel)
     )
+}
+
+fn plot_id_for_histogram(channel: &str) -> String {
+    format!("hist_{}", sanitize_plot_segment(channel))
 }
 
 fn sanitize_plot_segment(value: &str) -> String {
@@ -2726,6 +4451,76 @@ fn points_json(
         .collect()
 }
 
+fn histogram_bins(
+    sample: &SampleFrame,
+    channel_index: usize,
+    x_min: f64,
+    x_max: f64,
+    bin_count: usize,
+    mask: Option<&BitMask>,
+) -> Vec<JsonValue> {
+    let width = ((x_max - x_min) / bin_count.max(1) as f64).max(1e-9);
+    let mut counts = vec![0u64; bin_count.max(1)];
+
+    for (event_index, row) in sample.events().iter().enumerate() {
+        if mask.is_some_and(|mask| !mask.contains(event_index)) {
+            continue;
+        }
+        let value = row[channel_index];
+        if value < x_min || value > x_max {
+            continue;
+        }
+        let mut index = if value >= x_max {
+            counts.len() - 1
+        } else {
+            ((value - x_min) / width).floor() as usize
+        };
+        if index >= counts.len() {
+            index = counts.len() - 1;
+        }
+        counts[index] += 1;
+    }
+
+    counts
+        .into_iter()
+        .enumerate()
+        .map(|(index, count)| {
+            let start = x_min + (index as f64 * width);
+            let end = if index + 1 == bin_count.max(1) {
+                x_max
+            } else {
+                start + width
+            };
+            JsonValue::object([
+                ("x0", JsonValue::Number(start)),
+                ("x1", JsonValue::Number(end)),
+                ("count", JsonValue::Number(count as f64)),
+            ])
+        })
+        .collect()
+}
+
+fn channel_bounds(
+    sample: &SampleFrame,
+    index: usize,
+    mask: Option<&BitMask>,
+) -> Option<(f64, f64)> {
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    let mut any = false;
+
+    for (event_index, row) in sample.events().iter().enumerate() {
+        if mask.is_some_and(|mask| !mask.contains(event_index)) {
+            continue;
+        }
+        any = true;
+        min = min.min(row[index]);
+        max = max.max(row[index]);
+    }
+
+    any.then_some((min, max))
+}
+
 fn axis_bounds(sample: &SampleFrame, index: usize) -> (f64, f64) {
     let mut min = f64::INFINITY;
     let mut max = f64::NEG_INFINITY;
@@ -2744,7 +4539,15 @@ fn axis_bounds(sample: &SampleFrame, index: usize) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::{
+        flowjoish_desktop_session_apply_active_template_to_other_samples,
+        flowjoish_desktop_session_export_batch_stats_csv,
+        flowjoish_desktop_session_export_population_comparison_csv,
+        flowjoish_desktop_session_export_population_derived_metric_csv,
+        flowjoish_desktop_session_export_population_group_summary_csv,
+        flowjoish_desktop_session_set_derived_metric_json,
+        flowjoish_desktop_session_set_sample_group_label,
         DesktopSession, bootstrap_json_string, flowjoish_desktop_session_dispatch_json,
+        flowjoish_desktop_session_export_stats_csv,
         flowjoish_desktop_session_free, flowjoish_desktop_session_load_workspace,
         flowjoish_desktop_session_new, flowjoish_desktop_session_redo,
         flowjoish_desktop_session_save_workspace, flowjoish_desktop_session_select_sample,
@@ -2994,6 +4797,21 @@ mod tests {
                 .and_then(|plot| plot.get("title"))
                 .and_then(JsonValue::as_str),
             Some("FL1 vs FL2")
+        );
+        assert_eq!(beta_plots.len(), 3);
+        assert_eq!(
+            beta_plots
+                .get(2)
+                .and_then(|plot| plot.get("kind"))
+                .and_then(JsonValue::as_str),
+            Some("histogram")
+        );
+        assert_eq!(
+            beta_plots
+                .get(2)
+                .and_then(|plot| plot.get("title"))
+                .and_then(JsonValue::as_str),
+            Some("FL1 histogram")
         );
 
         let alpha_snapshot = session.select_sample("alpha");
@@ -3350,6 +5168,25 @@ mod tests {
         ])
         .stringify_canonical();
         let viewed = session.dispatch_json(&view_payload);
+        let _ = session.set_sample_group_label("save-alpha", "Control");
+        let _ = session.set_sample_group_label("save-beta", "Treated");
+        let derived_metric_payload = JsonValue::object([
+            ("kind", JsonValue::String("mean_ratio".to_string())),
+            (
+                "numerator_channel",
+                JsonValue::String("FL2".to_string()),
+            ),
+            (
+                "denominator_channel",
+                JsonValue::String("FL1".to_string()),
+            ),
+        ])
+        .stringify_canonical();
+        let derived_metric = session.set_derived_metric_from_json(&derived_metric_payload);
+        assert_eq!(
+            derived_metric.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
         assert_eq!(
             viewed
                 .get("plots")
@@ -3381,9 +5218,37 @@ mod tests {
         assert_eq!(
             loaded
                 .get("sample")
+                .and_then(|sample| sample.get("group_label"))
+                .and_then(JsonValue::as_str),
+            Some("Treated")
+        );
+        assert_eq!(
+            loaded
+                .get("sample")
                 .and_then(|sample| sample.get("compensation_enabled"))
                 .and_then(JsonValue::as_bool),
             Some(true)
+        );
+        assert_eq!(
+            loaded
+                .get("derived_metric")
+                .and_then(|metric| metric.get("kind"))
+                .and_then(JsonValue::as_str),
+            Some("mean_ratio")
+        );
+        assert_eq!(
+            loaded
+                .get("derived_metric")
+                .and_then(|metric| metric.get("numerator_channel"))
+                .and_then(JsonValue::as_str),
+            Some("FL2")
+        );
+        assert_eq!(
+            loaded
+                .get("derived_metric")
+                .and_then(|metric| metric.get("denominator_channel"))
+                .and_then(JsonValue::as_str),
+            Some("FL1")
         );
         assert_eq!(
             loaded
@@ -3401,6 +5266,13 @@ mod tests {
         assert_eq!(
             alpha_snapshot.get("command_count").and_then(JsonValue::as_u64),
             Some(1)
+        );
+        assert_eq!(
+            alpha_snapshot
+                .get("sample")
+                .and_then(|sample| sample.get("group_label"))
+                .and_then(JsonValue::as_str),
+            Some("Control")
         );
         let beta_snapshot = reopened.select_sample("save-beta");
         assert_eq!(beta_snapshot.get("can_redo").and_then(JsonValue::as_bool), Some(true));
@@ -3447,6 +5319,679 @@ mod tests {
         );
     }
 
+    #[test]
+    fn snapshot_includes_population_stats_for_selected_sample() {
+        let mut session = DesktopSession::new().expect("session");
+        let command = JsonValue::object([
+            ("kind", JsonValue::String("rectangle_gate".to_string())),
+            ("sample_id", JsonValue::String("desktop-demo".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(35.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(35.0)),
+        ])
+        .stringify_canonical();
+
+        let snapshot = session.dispatch_json(&command);
+        let stats = snapshot
+            .get("population_stats")
+            .and_then(|value| value.get("lymphocytes"))
+            .expect("population stats");
+        assert_eq!(
+            stats.get("matched_events").and_then(JsonValue::as_u64),
+            Some(3)
+        );
+        assert_eq!(
+            stats.get("parent_events").and_then(JsonValue::as_u64),
+            Some(4)
+        );
+        assert_eq!(
+            stats
+                .get("channel_stats")
+                .and_then(JsonValue::as_array)
+                .map(|values| values.len()),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn ffi_can_export_population_stats_csv() {
+        let export_path = temp_stats_export_path("ffi-stats");
+        let session = flowjoish_desktop_session_new();
+        assert!(!session.is_null());
+
+        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
+            .expect("export path");
+        let export_payload =
+            flowjoish_desktop_session_export_stats_csv(session, export_path_c.as_ptr());
+        assert!(!export_payload.is_null());
+        unsafe { flowjoish_string_free(export_payload) };
+        unsafe { flowjoish_desktop_session_free(session) };
+
+        let exported = fs::read_to_string(&export_path).expect("read stats export");
+        assert!(exported.starts_with(
+            "sample_id,population_key,population_id,parent_population,matched_events,parent_events,frequency_of_all,frequency_of_parent,channel,mean,median\n"
+        ));
+        assert!(exported.contains("desktop-demo,__all__,All Events,"));
+        assert!(exported.contains(",FSC-A,"));
+
+        let _ = fs::remove_file(export_path);
+    }
+
+    #[test]
+    fn session_applies_active_template_to_other_samples() {
+        let alpha_path = write_temp_test_fcs(
+            "batch-alpha",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD3", "CD4"],
+                vec![vec![10.0, 10.0, 1.0, 9.0], vec![25.0, 20.0, 5.0, 8.0]],
+                None,
+            ),
+        );
+        let beta_path = write_temp_test_fcs(
+            "batch-beta",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD3", "CD4"],
+                vec![vec![12.0, 11.0, 2.0, 8.5], vec![24.0, 19.0, 4.5, 7.5]],
+                None,
+            ),
+        );
+
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![
+            JsonValue::String(alpha_path.to_string_lossy().to_string()),
+            JsonValue::String(beta_path.to_string_lossy().to_string()),
+        ])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
+
+        let gate = JsonValue::object([
+            ("kind", JsonValue::String("rectangle_gate".to_string())),
+            ("sample_id", JsonValue::String("batch-alpha".to_string())),
+            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(30.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(30.0)),
+        ])
+        .stringify_canonical();
+        let _ = session.dispatch_json(&gate);
+
+        let applied = session.apply_active_template_to_other_samples();
+        assert_eq!(applied.get("status").and_then(JsonValue::as_str), Some("ready"));
+
+        let beta_snapshot = session.select_sample("batch-beta");
+        assert_eq!(
+            beta_snapshot.get("command_count").and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert!(
+            beta_snapshot
+                .get("population_stats")
+                .and_then(|value| value.get("lymphocytes"))
+                .is_some()
+        );
+
+        let _ = fs::remove_file(alpha_path);
+        let _ = fs::remove_file(beta_path);
+    }
+
+    #[test]
+    fn population_comparison_reports_available_and_missing_samples() {
+        let alpha_path = write_temp_test_fcs(
+            "compare-alpha",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD3", "CD4"],
+                vec![vec![10.0, 10.0, 1.0, 9.0], vec![25.0, 20.0, 5.0, 8.0]],
+                None,
+            ),
+        );
+        let beta_path = write_temp_test_fcs(
+            "compare-beta",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD3", "CD4"],
+                vec![vec![12.0, 11.0, 2.0, 8.5], vec![24.0, 19.0, 4.5, 7.5]],
+                None,
+            ),
+        );
+
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![
+            JsonValue::String(alpha_path.to_string_lossy().to_string()),
+            JsonValue::String(beta_path.to_string_lossy().to_string()),
+        ])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
+
+        let gate = JsonValue::object([
+            ("kind", JsonValue::String("rectangle_gate".to_string())),
+            ("sample_id", JsonValue::String("compare-alpha".to_string())),
+            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(30.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(30.0)),
+        ])
+        .stringify_canonical();
+        let _ = session.dispatch_json(&gate);
+        let _ = session.set_sample_group_label("compare-alpha", "Control");
+        let _ = session.set_sample_group_label("compare-beta", "Treated");
+        let derived_metric_payload = JsonValue::object([
+            ("kind", JsonValue::String("positive_fraction".to_string())),
+            ("channel", JsonValue::String("CD3".to_string())),
+            ("threshold", JsonValue::Number(1.5)),
+        ])
+        .stringify_canonical();
+        let _ = session.set_derived_metric_from_json(&derived_metric_payload);
+
+        let comparison = session.population_comparison("lymphocytes");
+        assert_eq!(comparison.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            comparison
+                .get("population_comparison")
+                .and_then(|value| value.get("available_sample_count"))
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            comparison
+                .get("population_comparison")
+                .and_then(|value| value.get("missing_sample_count"))
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        let rows = comparison
+            .get("population_comparison")
+            .and_then(|value| value.get("samples"))
+            .and_then(JsonValue::as_array)
+            .expect("comparison rows");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0]
+                .get("status")
+                .and_then(JsonValue::as_str),
+            Some("available")
+        );
+        assert_eq!(
+            rows[0]
+                .get("derived_metric_status")
+                .and_then(JsonValue::as_str),
+            Some("available")
+        );
+        assert_eq!(
+            rows[0]
+                .get("derived_metric_value")
+                .and_then(JsonValue::as_f64),
+            Some(0.5)
+        );
+        assert_eq!(
+            rows[1]
+                .get("status")
+                .and_then(JsonValue::as_str),
+            Some("missing")
+        );
+        assert_eq!(
+            rows[1]
+                .get("derived_metric_status")
+                .and_then(JsonValue::as_str),
+            Some("missing_population")
+        );
+        let group_summaries = comparison
+            .get("population_comparison")
+            .and_then(|value| value.get("group_summaries"))
+            .and_then(JsonValue::as_array)
+            .expect("group summaries");
+        assert_eq!(group_summaries.len(), 2);
+        assert_eq!(
+            group_summaries[0]
+                .get("group_label")
+                .and_then(JsonValue::as_str),
+            Some("Control")
+        );
+        assert_eq!(
+            group_summaries[0]
+                .get("is_active_group")
+                .and_then(JsonValue::as_bool),
+            Some(true)
+        );
+
+        let _ = session.apply_active_template_to_other_samples();
+        let applied_comparison = session.population_comparison("lymphocytes");
+        assert_eq!(
+            applied_comparison
+                .get("population_comparison")
+                .and_then(|value| value.get("available_sample_count"))
+                .and_then(JsonValue::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            applied_comparison
+                .get("population_comparison")
+                .and_then(|value| value.get("group_summaries"))
+                .and_then(JsonValue::as_array)
+                .and_then(|rows| rows.get(1))
+                .and_then(|row| row.get("mean_frequency_of_all"))
+                .and_then(JsonValue::as_f64),
+            Some(1.0)
+        );
+        assert_eq!(
+            applied_comparison
+                .get("population_comparison")
+                .and_then(|value| value.get("group_summaries"))
+                .and_then(JsonValue::as_array)
+                .and_then(|rows| rows.get(1))
+                .and_then(|row| row.get("mean_derived_metric_value"))
+                .and_then(JsonValue::as_f64),
+            Some(1.0)
+        );
+        assert_eq!(
+            applied_comparison
+                .get("population_comparison")
+                .and_then(|value| value.get("group_summaries"))
+                .and_then(JsonValue::as_array)
+                .and_then(|rows| rows.get(1))
+                .and_then(|row| row.get("delta_mean_derived_metric_value"))
+                .and_then(JsonValue::as_f64),
+            Some(0.5)
+        );
+
+        let _ = fs::remove_file(alpha_path);
+        let _ = fs::remove_file(beta_path);
+    }
+
+    #[test]
+    fn ffi_can_export_batch_population_stats_csv() {
+        let alpha_path = write_temp_test_fcs(
+            "batch-export-alpha",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A"],
+                vec![vec![10.0, 10.0], vec![20.0, 20.0]],
+                None,
+            ),
+        );
+        let beta_path = write_temp_test_fcs(
+            "batch-export-beta",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A"],
+                vec![vec![11.0, 11.0], vec![21.0, 21.0]],
+                None,
+            ),
+        );
+        let export_path = temp_stats_export_path("ffi-batch-stats");
+
+        let session = flowjoish_desktop_session_new();
+        assert!(!session.is_null());
+
+        let import_payload = CString::new(
+            JsonValue::Array(vec![
+                JsonValue::String(alpha_path.to_string_lossy().to_string()),
+                JsonValue::String(beta_path.to_string_lossy().to_string()),
+            ])
+            .stringify_canonical(),
+        )
+        .expect("import payload");
+        let import_result =
+            super::flowjoish_desktop_session_import_fcs_json(session, import_payload.as_ptr());
+        unsafe { flowjoish_string_free(import_result) };
+
+        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
+            .expect("export path");
+        let export_payload =
+            flowjoish_desktop_session_export_batch_stats_csv(session, export_path_c.as_ptr());
+        assert!(!export_payload.is_null());
+        unsafe { flowjoish_string_free(export_payload) };
+
+        let gate_command = CString::new(
+            JsonValue::object([
+                ("kind", JsonValue::String("rectangle_gate".to_string())),
+                (
+                    "sample_id",
+                    JsonValue::String("batch-export-alpha".to_string()),
+                ),
+                ("population_id", JsonValue::String("lymphocytes".to_string())),
+                ("parent_population", JsonValue::Null),
+                ("x_channel", JsonValue::String("FSC-A".to_string())),
+                ("y_channel", JsonValue::String("SSC-A".to_string())),
+                ("x_min", JsonValue::Number(0.0)),
+                ("x_max", JsonValue::Number(30.0)),
+                ("y_min", JsonValue::Number(0.0)),
+                ("y_max", JsonValue::Number(30.0)),
+            ])
+            .stringify_canonical(),
+        )
+        .expect("gate command");
+        let gate_payload =
+            flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
+        unsafe { flowjoish_string_free(gate_payload) };
+
+        let apply_payload = flowjoish_desktop_session_apply_active_template_to_other_samples(session);
+        assert!(!apply_payload.is_null());
+        unsafe { flowjoish_string_free(apply_payload) };
+        unsafe { flowjoish_desktop_session_free(session) };
+
+        let exported = fs::read_to_string(&export_path).expect("read batch stats export");
+        assert!(exported.contains("batch-export-alpha"));
+        assert!(exported.contains("batch-export-beta"));
+
+        let _ = fs::remove_file(alpha_path);
+        let _ = fs::remove_file(beta_path);
+        let _ = fs::remove_file(export_path);
+    }
+
+    #[test]
+    fn ffi_can_export_population_comparison_csv() {
+        let alpha_path = write_temp_test_fcs(
+            "comparison-export-alpha",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A"],
+                vec![vec![10.0, 10.0], vec![20.0, 20.0]],
+                None,
+            ),
+        );
+        let beta_path = write_temp_test_fcs(
+            "comparison-export-beta",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A"],
+                vec![vec![11.0, 11.0], vec![21.0, 21.0]],
+                None,
+            ),
+        );
+        let export_path = temp_stats_export_path("ffi-population-comparison");
+
+        let session = flowjoish_desktop_session_new();
+        assert!(!session.is_null());
+
+        let import_payload = CString::new(
+            JsonValue::Array(vec![
+                JsonValue::String(alpha_path.to_string_lossy().to_string()),
+                JsonValue::String(beta_path.to_string_lossy().to_string()),
+            ])
+            .stringify_canonical(),
+        )
+        .expect("import payload");
+        let import_result =
+            super::flowjoish_desktop_session_import_fcs_json(session, import_payload.as_ptr());
+        unsafe { flowjoish_string_free(import_result) };
+
+        let gate_command = CString::new(
+            JsonValue::object([
+                ("kind", JsonValue::String("rectangle_gate".to_string())),
+                (
+                    "sample_id",
+                    JsonValue::String("comparison-export-alpha".to_string()),
+                ),
+                ("population_id", JsonValue::String("lymphocytes".to_string())),
+                ("parent_population", JsonValue::Null),
+                ("x_channel", JsonValue::String("FSC-A".to_string())),
+                ("y_channel", JsonValue::String("SSC-A".to_string())),
+                ("x_min", JsonValue::Number(0.0)),
+                ("x_max", JsonValue::Number(30.0)),
+                ("y_min", JsonValue::Number(0.0)),
+                ("y_max", JsonValue::Number(30.0)),
+            ])
+            .stringify_canonical(),
+        )
+        .expect("gate command");
+        let gate_payload =
+            flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
+        unsafe { flowjoish_string_free(gate_payload) };
+        let alpha_id = CString::new("comparison-export-alpha").expect("alpha sample id");
+        let control_group = CString::new("Control").expect("control group");
+        let alpha_group_payload = flowjoish_desktop_session_set_sample_group_label(
+            session,
+            alpha_id.as_ptr(),
+            control_group.as_ptr(),
+        );
+        unsafe { flowjoish_string_free(alpha_group_payload) };
+        let beta_id = CString::new("comparison-export-beta").expect("beta sample id");
+        let treated_group = CString::new("Treated").expect("treated group");
+        let beta_group_payload = flowjoish_desktop_session_set_sample_group_label(
+            session,
+            beta_id.as_ptr(),
+            treated_group.as_ptr(),
+        );
+        unsafe { flowjoish_string_free(beta_group_payload) };
+
+        let population_key = CString::new("lymphocytes").expect("population key");
+        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
+            .expect("export path");
+        let export_payload = flowjoish_desktop_session_export_population_comparison_csv(
+            session,
+            population_key.as_ptr(),
+            export_path_c.as_ptr(),
+        );
+        assert!(!export_payload.is_null());
+        unsafe { flowjoish_string_free(export_payload) };
+        unsafe { flowjoish_desktop_session_free(session) };
+
+        let exported =
+            fs::read_to_string(&export_path).expect("read population comparison export");
+        assert!(exported.starts_with(
+            "population_key,population_id,active_sample_id,active_group_label,sample_id,display_name,group_label,source_path,status,is_active_sample,matched_events,parent_events,frequency_of_all,frequency_of_parent,delta_frequency_of_all,delta_frequency_of_parent\n"
+        ));
+        assert!(exported.contains("lymphocytes"));
+        assert!(exported.contains("comparison-export-alpha"));
+        assert!(exported.contains("comparison-export-beta"));
+
+        let _ = fs::remove_file(alpha_path);
+        let _ = fs::remove_file(beta_path);
+        let _ = fs::remove_file(export_path);
+    }
+
+    #[test]
+    fn ffi_can_export_population_group_summary_csv() {
+        let alpha_path = write_temp_test_fcs(
+            "group-summary-alpha",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A"],
+                vec![vec![10.0, 10.0], vec![20.0, 20.0]],
+                None,
+            ),
+        );
+        let beta_path = write_temp_test_fcs(
+            "group-summary-beta",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A"],
+                vec![vec![11.0, 11.0], vec![21.0, 21.0]],
+                None,
+            ),
+        );
+        let export_path = temp_stats_export_path("ffi-group-summary");
+
+        let session = flowjoish_desktop_session_new();
+        assert!(!session.is_null());
+        let import_payload = CString::new(
+            JsonValue::Array(vec![
+                JsonValue::String(alpha_path.to_string_lossy().to_string()),
+                JsonValue::String(beta_path.to_string_lossy().to_string()),
+            ])
+            .stringify_canonical(),
+        )
+        .expect("import payload");
+        let import_result =
+            super::flowjoish_desktop_session_import_fcs_json(session, import_payload.as_ptr());
+        unsafe { flowjoish_string_free(import_result) };
+        let alpha_id = CString::new("group-summary-alpha").expect("alpha sample id");
+        let control_group = CString::new("Control").expect("control group");
+        let alpha_group_payload = flowjoish_desktop_session_set_sample_group_label(
+            session,
+            alpha_id.as_ptr(),
+            control_group.as_ptr(),
+        );
+        unsafe { flowjoish_string_free(alpha_group_payload) };
+        let beta_id = CString::new("group-summary-beta").expect("beta sample id");
+        let treated_group = CString::new("Treated").expect("treated group");
+        let beta_group_payload = flowjoish_desktop_session_set_sample_group_label(
+            session,
+            beta_id.as_ptr(),
+            treated_group.as_ptr(),
+        );
+        unsafe { flowjoish_string_free(beta_group_payload) };
+
+        let gate_command = CString::new(
+            JsonValue::object([
+                ("kind", JsonValue::String("rectangle_gate".to_string())),
+                ("sample_id", JsonValue::String("group-summary-alpha".to_string())),
+                ("population_id", JsonValue::String("lymphocytes".to_string())),
+                ("parent_population", JsonValue::Null),
+                ("x_channel", JsonValue::String("FSC-A".to_string())),
+                ("y_channel", JsonValue::String("SSC-A".to_string())),
+                ("x_min", JsonValue::Number(0.0)),
+                ("x_max", JsonValue::Number(30.0)),
+                ("y_min", JsonValue::Number(0.0)),
+                ("y_max", JsonValue::Number(30.0)),
+            ])
+            .stringify_canonical(),
+        )
+        .expect("gate command");
+        let gate_payload =
+            flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
+        unsafe { flowjoish_string_free(gate_payload) };
+        let apply_payload =
+            flowjoish_desktop_session_apply_active_template_to_other_samples(session);
+        unsafe { flowjoish_string_free(apply_payload) };
+
+        let population_key = CString::new("lymphocytes").expect("population key");
+        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
+            .expect("export path");
+        let export_payload = flowjoish_desktop_session_export_population_group_summary_csv(
+            session,
+            population_key.as_ptr(),
+            export_path_c.as_ptr(),
+        );
+        assert!(!export_payload.is_null());
+        unsafe { flowjoish_string_free(export_payload) };
+        unsafe { flowjoish_desktop_session_free(session) };
+
+        let exported =
+            fs::read_to_string(&export_path).expect("read cohort summary export");
+        assert!(exported.starts_with(
+            "population_key,population_id,active_sample_id,active_group_label,group_label,is_active_group,sample_count,available_sample_count,missing_sample_count,total_matched_events,total_parent_events,mean_frequency_of_all,mean_frequency_of_parent,delta_mean_frequency_of_all,delta_mean_frequency_of_parent,mean_derived_metric_value,delta_mean_derived_metric_value\n"
+        ));
+        assert!(exported.contains("lymphocytes"));
+
+        let _ = fs::remove_file(alpha_path);
+        let _ = fs::remove_file(beta_path);
+        let _ = fs::remove_file(export_path);
+    }
+
+    #[test]
+    fn ffi_can_set_and_export_population_derived_metric_csv() {
+        let alpha_path = write_temp_test_fcs(
+            "derived-metric-alpha",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD3"],
+                vec![vec![10.0, 10.0, 1.0], vec![20.0, 20.0, 5.0]],
+                None,
+            ),
+        );
+        let beta_path = write_temp_test_fcs(
+            "derived-metric-beta",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD3"],
+                vec![vec![11.0, 11.0, 2.0], vec![21.0, 21.0, 4.0]],
+                None,
+            ),
+        );
+        let export_path = temp_stats_export_path("ffi-derived-metric");
+
+        let session = flowjoish_desktop_session_new();
+        assert!(!session.is_null());
+
+        let import_payload = CString::new(
+            JsonValue::Array(vec![
+                JsonValue::String(alpha_path.to_string_lossy().to_string()),
+                JsonValue::String(beta_path.to_string_lossy().to_string()),
+            ])
+            .stringify_canonical(),
+        )
+        .expect("import payload");
+        let import_result =
+            super::flowjoish_desktop_session_import_fcs_json(session, import_payload.as_ptr());
+        unsafe { flowjoish_string_free(import_result) };
+
+        let gate_command = CString::new(
+            JsonValue::object([
+                ("kind", JsonValue::String("rectangle_gate".to_string())),
+                (
+                    "sample_id",
+                    JsonValue::String("derived-metric-alpha".to_string()),
+                ),
+                ("population_id", JsonValue::String("lymphocytes".to_string())),
+                ("parent_population", JsonValue::Null),
+                ("x_channel", JsonValue::String("FSC-A".to_string())),
+                ("y_channel", JsonValue::String("SSC-A".to_string())),
+                ("x_min", JsonValue::Number(0.0)),
+                ("x_max", JsonValue::Number(30.0)),
+                ("y_min", JsonValue::Number(0.0)),
+                ("y_max", JsonValue::Number(30.0)),
+            ])
+            .stringify_canonical(),
+        )
+        .expect("gate command");
+        let gate_payload =
+            flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
+        unsafe { flowjoish_string_free(gate_payload) };
+        let apply_payload =
+            flowjoish_desktop_session_apply_active_template_to_other_samples(session);
+        unsafe { flowjoish_string_free(apply_payload) };
+
+        let metric_payload = CString::new(
+            JsonValue::object([
+                ("kind", JsonValue::String("positive_fraction".to_string())),
+                ("channel", JsonValue::String("CD3".to_string())),
+                ("threshold", JsonValue::Number(1.5)),
+            ])
+            .stringify_canonical(),
+        )
+        .expect("metric payload");
+        let metric_result =
+            flowjoish_desktop_session_set_derived_metric_json(session, metric_payload.as_ptr());
+        assert!(!metric_result.is_null());
+        unsafe { flowjoish_string_free(metric_result) };
+
+        let population_key = CString::new("lymphocytes").expect("population key");
+        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
+            .expect("export path");
+        let export_payload = flowjoish_desktop_session_export_population_derived_metric_csv(
+            session,
+            population_key.as_ptr(),
+            export_path_c.as_ptr(),
+        );
+        assert!(!export_payload.is_null());
+        unsafe { flowjoish_string_free(export_payload) };
+        unsafe { flowjoish_desktop_session_free(session) };
+
+        let exported =
+            fs::read_to_string(&export_path).expect("read derived metric export");
+        assert!(exported.starts_with(
+            "population_key,population_id,active_sample_id,metric_kind,metric_label,sample_id,display_name,group_label,status,is_active_sample,value,delta_value,message\n"
+        ));
+        assert!(exported.contains("positive_fraction"));
+        assert!(exported.contains("derived-metric-alpha"));
+        assert!(exported.contains("derived-metric-beta"));
+        assert!(exported.contains("0.500000"));
+
+        let _ = fs::remove_file(alpha_path);
+        let _ = fs::remove_file(beta_path);
+        let _ = fs::remove_file(export_path);
+    }
+
     fn write_temp_test_fcs(prefix: &str, bytes: Vec<u8>) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -3469,6 +6014,17 @@ mod tests {
             .as_nanos();
         std::env::temp_dir().join(format!(
             "flowjoish-desktop-bridge-{prefix}-{}-{nanos}.parallax.json",
+            std::process::id()
+        ))
+    }
+
+    fn temp_stats_export_path(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "flowjoish-desktop-bridge-{prefix}-{}-{nanos}.csv",
             std::process::id()
         ))
     }

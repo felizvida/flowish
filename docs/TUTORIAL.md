@@ -8,6 +8,8 @@ By the end, you will:
 - create a child polygon gate
 - apply a transform preset
 - refocus a plot on the active population
+- inspect population stats and export them
+- configure and export a derived metric
 - inspect the resulting population hierarchy
 - use undo and redo
 - understand what the command log is tracking
@@ -22,10 +24,11 @@ cmake --build build/desktop-qt
 ./build/desktop-qt/flowjoish-desktop
 ```
 
-When Parallax opens, it loads a demo sample with two scatter plots:
+When Parallax opens, it loads a demo sample with two scatter plots and a histogram:
 
 - `FSC-A vs SSC-A`
 - `CD3 vs CD4`
+- a histogram for the first analysis channel
 
 If you want to use real files instead, click `Import FCS Files` and choose one or more `.fcs` files. The rest of the interaction model stays the same, but the exact plots and preset availability will depend on the channels in your imported sample.
 
@@ -120,8 +123,54 @@ Expected result:
 - the plot range tightens around the selected population
 - the plot subtitle shows a new view summary
 - the workspace will remember this view action
+- if you focus the histogram panel instead, its x-range tightens around the selected population's distribution
 
-## Step 8. Use Undo and Redo
+## Step 8. Inspect Population Stats
+
+Look at the `Population Stats` panel in the left rail while your child population is selected.
+
+Expected result:
+
+- the matched-event count reflects the selected population
+- you can see its percentage of all events and of its parent population
+- each channel shows a mean and median for the selected population
+
+If you want a file output, click `Export Stats CSV` and save the active sample's stats table.
+
+## Step 9. Configure A Derived Metric
+
+Use the `Derived Metric` panel in the left rail while your child population is still selected.
+
+Try one of these:
+
+- `Positive Fraction` on `CD3` with a threshold near `2.0`
+- `Mean Ratio` with `CD4` as the numerator and `CD3` as the denominator
+
+Expected result:
+
+- the selected population comparison picks up a per-sample derived-metric value
+- if you loaded multiple samples, the cohort summary also shows the cohort-level mean for that metric
+- `Export Derived Metric CSV` saves the selected population's derived-metric table
+
+## Step 10. Optional Batch Workflow
+
+If you imported more than one compatible sample, keep your current sample selected and click `Apply Template To Other Samples`.
+
+Expected result:
+
+- the current gate command log is copied onto the other loaded samples
+- you can type cohort labels such as `Control` and `Treated` into the `Active Sample Group` field as you switch samples
+- those samples become immediately ready for the same population stats workflow
+- the `Cross-Sample Comparison` panel shows the selected population side by side, marking the active sample as the baseline
+- the `Cross-Sample Comparison` panel also reports the active derived metric for each sample
+- the `Cohort Summary` panel rolls those rows up by cohort label and compares group means and derived-metric means against the active cohort
+- samples that do not yet contain that population are called out explicitly instead of being merged into the baseline
+- you can click `Export Selected Comparison CSV` to save just that side-by-side comparison
+- you can click `Export Derived Metric CSV` to save just the selected population's derived-metric values
+- you can click `Export Cohort Summary CSV` to save the grouped cohort summary
+- you can then click `Export Batch Stats CSV` to write one grouped table across all loaded samples
+
+## Step 11. Use Undo and Redo
 
 Click `Undo`.
 
@@ -140,7 +189,7 @@ Expected result:
 
 Note that undo and redo currently apply to gate commands only. Transform and plot-view actions remain explicit session state, but are not yet part of the undo stack.
 
-## Step 9. Reset the Session
+## Step 12. Reset the Session
 
 Click `Reset Session`.
 
@@ -152,7 +201,7 @@ Expected result:
 
 This gives you a clean slate without restarting the application.
 
-## Step 10. Compare Against the CLI
+## Step 13. Compare Against the CLI
 
 If you want to see the same replay philosophy outside the desktop, run:
 
@@ -166,7 +215,7 @@ That command prints:
 - the execution hash
 - matched-event counts for the replayed populations
 
-## Step 11. Save The Session
+## Step 14. Save The Session
 
 Click `Save Workspace As` if you want to persist the current desktop session.
 
@@ -175,6 +224,7 @@ What gets saved:
 - the sample list and active sample
 - the command log for each sample
 - analysis settings such as transforms and parsed compensation
+- the active derived metric definition
 - plot-view actions such as focus and zoom
 - redo state for each sample
 

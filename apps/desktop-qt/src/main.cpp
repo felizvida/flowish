@@ -4,6 +4,7 @@
 #include <QUrl>
 
 #include "DesktopController.h"
+#include "HistogramPlotItem.h"
 #include "ScatterPlotItem.h"
 
 int main(int argc, char *argv[]) {
@@ -11,6 +12,7 @@ int main(int argc, char *argv[]) {
     QQmlApplicationEngine engine;
     DesktopController controller;
 
+    qmlRegisterType<HistogramPlotItem>("Flowjoish", 1, 0, "HistogramPlotItem");
     qmlRegisterType<ScatterPlotItem>("Flowjoish", 1, 0, "ScatterPlotItem");
     engine.rootContext()->setContextProperty("desktopController", &controller);
 

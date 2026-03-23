@@ -22,6 +22,9 @@ class DesktopController : public QObject {
     Q_PROPERTY(QVariantList populations READ populations NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList commands READ commands NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList plots READ plots NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantMap derivedMetric READ derivedMetric NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantMap selectedPopulationStats READ selectedPopulationStats NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantMap selectedPopulationComparison READ selectedPopulationComparison NOTIFY snapshotChanged)
     Q_PROPERTY(QString selectedSampleId READ selectedSampleId WRITE setSelectedSampleId NOTIFY selectedSampleIdChanged)
     Q_PROPERTY(QString selectedPopulationKey READ selectedPopulationKey WRITE setSelectedPopulationKey NOTIFY selectedPopulationKeyChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
@@ -43,6 +46,9 @@ public:
     QVariantList populations() const;
     QVariantList commands() const;
     QVariantList plots() const;
+    QVariantMap derivedMetric() const;
+    QVariantMap selectedPopulationStats() const;
+    QVariantMap selectedPopulationComparison() const;
     QString selectedSampleId() const;
     QString selectedPopulationKey() const;
     QString lastError() const;
@@ -57,8 +63,24 @@ public:
     Q_INVOKABLE bool loadSampleFiles(const QStringList &paths);
     Q_INVOKABLE void saveWorkspaceAs();
     Q_INVOKABLE bool saveWorkspaceToFile(const QString &path);
+    Q_INVOKABLE void exportStatsCsv();
+    Q_INVOKABLE bool exportStatsCsvToFile(const QString &path);
+    Q_INVOKABLE void applyActiveTemplateToOtherSamples();
+    Q_INVOKABLE void exportBatchStatsCsv();
+    Q_INVOKABLE bool exportBatchStatsCsvToFile(const QString &path);
+    Q_INVOKABLE void exportSelectedPopulationComparisonCsv();
+    Q_INVOKABLE bool exportSelectedPopulationComparisonCsvToFile(const QString &path);
+    Q_INVOKABLE void exportSelectedPopulationGroupSummaryCsv();
+    Q_INVOKABLE bool exportSelectedPopulationGroupSummaryCsvToFile(const QString &path);
+    Q_INVOKABLE void exportSelectedPopulationDerivedMetricCsv();
+    Q_INVOKABLE bool exportSelectedPopulationDerivedMetricCsvToFile(const QString &path);
     Q_INVOKABLE void loadWorkspace();
     Q_INVOKABLE bool loadWorkspaceFile(const QString &path);
+    Q_INVOKABLE bool setActiveSampleGroupLabel(const QString &groupLabel);
+    Q_INVOKABLE bool setDerivedMetricPositiveFraction(const QString &channel, double threshold);
+    Q_INVOKABLE bool setDerivedMetricMeanRatio(
+        const QString &numeratorChannel,
+        const QString &denominatorChannel);
     Q_INVOKABLE void setCompensationEnabled(bool enabled);
     Q_INVOKABLE void setChannelTransform(const QString &channel, const QString &kind);
     Q_INVOKABLE void resetPlotView(const QString &plotId);
@@ -88,8 +110,10 @@ signals:
 private:
     bool applyRustPayload(const QString &payload, bool replaceSnapshotOnError = false);
     void rebuildDerivedState();
+    void refreshSelectedPopulationComparison();
     void setLastError(const QString &message);
     void setWorkspacePath(const QString &path);
+    bool setDerivedMetric(const QJsonObject &metric);
     QString buildPresetCommandJson(const QString &presetId) const;
     bool presetIsAvailable(const QString &presetId) const;
     bool commitInteractiveCommand(const QJsonObject &command, const QString &populationId);
@@ -107,6 +131,9 @@ private:
     QVariantList populations_;
     QVariantList commands_;
     QVariantList plots_;
+    QVariantMap derivedMetric_;
+    QVariantMap selectedPopulationStats_;
+    QVariantMap selectedPopulationComparison_;
     QString status_ = "booting";
     int commandCount_ = 0;
     bool canUndo_ = false;

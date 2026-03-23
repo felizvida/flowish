@@ -20,6 +20,29 @@ char *flowjoish_desktop_session_import_fcs_json(void *session, const char *fileP
 char *flowjoish_desktop_session_select_sample(void *session, const char *sampleId);
 char *flowjoish_desktop_session_save_workspace(void *session, const char *workspacePath);
 char *flowjoish_desktop_session_load_workspace(void *session, const char *workspacePath);
+char *flowjoish_desktop_session_export_stats_csv(void *session, const char *exportPath);
+char *flowjoish_desktop_session_apply_active_template_to_other_samples(void *session);
+char *flowjoish_desktop_session_export_batch_stats_csv(void *session, const char *exportPath);
+char *flowjoish_desktop_session_population_comparison_json(void *session, const char *populationKey);
+char *flowjoish_desktop_session_export_population_comparison_csv(
+    void *session,
+    const char *populationKey,
+    const char *exportPath);
+char *flowjoish_desktop_session_export_population_group_summary_csv(
+    void *session,
+    const char *populationKey,
+    const char *exportPath);
+char *flowjoish_desktop_session_set_derived_metric_json(
+    void *session,
+    const char *metricJson);
+char *flowjoish_desktop_session_export_population_derived_metric_csv(
+    void *session,
+    const char *populationKey,
+    const char *exportPath);
+char *flowjoish_desktop_session_set_sample_group_label(
+    void *session,
+    const char *sampleId,
+    const char *groupLabel);
 void flowjoish_desktop_session_free(void *session);
 void flowjoish_string_free(char *ptr);
 }
@@ -107,6 +130,18 @@ QVariantList DesktopController::commands() const {
 
 QVariantList DesktopController::plots() const {
     return plots_;
+}
+
+QVariantMap DesktopController::derivedMetric() const {
+    return derivedMetric_;
+}
+
+QVariantMap DesktopController::selectedPopulationStats() const {
+    return selectedPopulationStats_;
+}
+
+QVariantMap DesktopController::selectedPopulationComparison() const {
+    return selectedPopulationComparison_;
 }
 
 QString DesktopController::selectedSampleId() const {
@@ -227,6 +262,92 @@ void DesktopController::saveWorkspaceAs() {
     }
 }
 
+void DesktopController::exportStatsCsv() {
+    const QString suggestedName =
+        sample_.value("display_name").toString().isEmpty()
+            ? QStringLiteral("parallax-stats.csv")
+            : sample_.value("display_name").toString() + QStringLiteral("-stats.csv");
+    const QString path = QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Export Population Stats"),
+        suggestedName,
+        tr("CSV Files (*.csv);;All Files (*)"));
+    if (!path.isEmpty()) {
+        exportStatsCsvToFile(path);
+    }
+}
+
+void DesktopController::applyActiveTemplateToOtherSamples() {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return;
+    }
+
+    applyRustPayload(
+        takeRustString(
+            flowjoish_desktop_session_apply_active_template_to_other_samples(session_)),
+        true);
+}
+
+void DesktopController::exportBatchStatsCsv() {
+    const QString path = QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Export Batch Population Stats"),
+        QStringLiteral("parallax-batch-stats.csv"),
+        tr("CSV Files (*.csv);;All Files (*)"));
+    if (!path.isEmpty()) {
+        exportBatchStatsCsvToFile(path);
+    }
+}
+
+void DesktopController::exportSelectedPopulationComparisonCsv() {
+    const QString populationId =
+        selectedPopulationComparison_.value("population_id").toString();
+    const QString suggestedName = populationId.isEmpty()
+        ? QStringLiteral("parallax-population-comparison.csv")
+        : populationId + QStringLiteral("-comparison.csv");
+    const QString path = QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Export Population Comparison"),
+        suggestedName,
+        tr("CSV Files (*.csv);;All Files (*)"));
+    if (!path.isEmpty()) {
+        exportSelectedPopulationComparisonCsvToFile(path);
+    }
+}
+
+void DesktopController::exportSelectedPopulationGroupSummaryCsv() {
+    const QString populationId =
+        selectedPopulationComparison_.value("population_id").toString();
+    const QString suggestedName = populationId.isEmpty()
+        ? QStringLiteral("parallax-cohort-summary.csv")
+        : populationId + QStringLiteral("-cohort-summary.csv");
+    const QString path = QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Export Cohort Summary"),
+        suggestedName,
+        tr("CSV Files (*.csv);;All Files (*)"));
+    if (!path.isEmpty()) {
+        exportSelectedPopulationGroupSummaryCsvToFile(path);
+    }
+}
+
+void DesktopController::exportSelectedPopulationDerivedMetricCsv() {
+    const QString populationId =
+        selectedPopulationComparison_.value("population_id").toString();
+    const QString suggestedName = populationId.isEmpty()
+        ? QStringLiteral("parallax-derived-metric.csv")
+        : populationId + QStringLiteral("-derived-metric.csv");
+    const QString path = QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Export Derived Metric"),
+        suggestedName,
+        tr("CSV Files (*.csv);;All Files (*)"));
+    if (!path.isEmpty()) {
+        exportSelectedPopulationDerivedMetricCsvToFile(path);
+    }
+}
+
 bool DesktopController::saveWorkspaceToFile(const QString &path) {
     if (session_ == nullptr) {
         setLastError("Desktop session is unavailable");
@@ -248,6 +369,179 @@ bool DesktopController::saveWorkspaceToFile(const QString &path) {
         setWorkspacePath(trimmed);
     }
     return saved;
+}
+
+bool DesktopController::exportStatsCsvToFile(const QString &path) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Stats export path cannot be empty");
+        return false;
+    }
+
+    const QByteArray utf8 = trimmed.toUtf8();
+    return applyRustPayload(
+        takeRustString(
+            flowjoish_desktop_session_export_stats_csv(session_, utf8.constData())),
+        true);
+}
+
+bool DesktopController::exportBatchStatsCsvToFile(const QString &path) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Batch stats export path cannot be empty");
+        return false;
+    }
+
+    const QByteArray utf8 = trimmed.toUtf8();
+    return applyRustPayload(
+        takeRustString(
+            flowjoish_desktop_session_export_batch_stats_csv(session_, utf8.constData())),
+        true);
+}
+
+bool DesktopController::exportSelectedPopulationComparisonCsvToFile(const QString &path) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Population comparison export path cannot be empty");
+        return false;
+    }
+
+    const QByteArray populationKeyUtf8 =
+        (selectedPopulationKey_.isEmpty() ? QStringLiteral("__all__") : selectedPopulationKey_)
+            .toUtf8();
+    const QByteArray pathUtf8 = trimmed.toUtf8();
+    return applyRustPayload(
+        takeRustString(flowjoish_desktop_session_export_population_comparison_csv(
+            session_,
+            populationKeyUtf8.constData(),
+            pathUtf8.constData())),
+        true);
+}
+
+bool DesktopController::exportSelectedPopulationGroupSummaryCsvToFile(const QString &path) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Population group summary export path cannot be empty");
+        return false;
+    }
+
+    const QByteArray populationKeyUtf8 =
+        (selectedPopulationKey_.isEmpty() ? QStringLiteral("__all__") : selectedPopulationKey_)
+            .toUtf8();
+    const QByteArray pathUtf8 = trimmed.toUtf8();
+    return applyRustPayload(
+        takeRustString(flowjoish_desktop_session_export_population_group_summary_csv(
+            session_,
+            populationKeyUtf8.constData(),
+            pathUtf8.constData())),
+        true);
+}
+
+bool DesktopController::exportSelectedPopulationDerivedMetricCsvToFile(const QString &path) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Population derived metric export path cannot be empty");
+        return false;
+    }
+
+    const QByteArray populationKeyUtf8 =
+        (selectedPopulationKey_.isEmpty() ? QStringLiteral("__all__") : selectedPopulationKey_)
+            .toUtf8();
+    const QByteArray pathUtf8 = trimmed.toUtf8();
+    return applyRustPayload(
+        takeRustString(flowjoish_desktop_session_export_population_derived_metric_csv(
+            session_,
+            populationKeyUtf8.constData(),
+            pathUtf8.constData())),
+        true);
+}
+
+bool DesktopController::setActiveSampleGroupLabel(const QString &groupLabel) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString sampleId = activeSampleId();
+    if (sampleId.isEmpty()) {
+        setLastError("No active sample is available");
+        return false;
+    }
+
+    const QByteArray sampleIdUtf8 = sampleId.toUtf8();
+    const QByteArray groupLabelUtf8 = groupLabel.toUtf8();
+    return applyRustPayload(
+        takeRustString(flowjoish_desktop_session_set_sample_group_label(
+            session_,
+            sampleIdUtf8.constData(),
+            groupLabelUtf8.constData())),
+        true);
+}
+
+bool DesktopController::setDerivedMetricPositiveFraction(
+    const QString &channel,
+    double threshold) {
+    const QString trimmedChannel = channel.trimmed();
+    if (trimmedChannel.isEmpty()) {
+        setLastError("Derived metric channel cannot be empty");
+        return false;
+    }
+    if (!std::isfinite(threshold)) {
+        setLastError("Derived metric threshold must be a finite number");
+        return false;
+    }
+
+    QJsonObject metric;
+    metric.insert("kind", "positive_fraction");
+    metric.insert("channel", trimmedChannel);
+    metric.insert("threshold", threshold);
+    return setDerivedMetric(metric);
+}
+
+bool DesktopController::setDerivedMetricMeanRatio(
+    const QString &numeratorChannel,
+    const QString &denominatorChannel) {
+    const QString trimmedNumerator = numeratorChannel.trimmed();
+    const QString trimmedDenominator = denominatorChannel.trimmed();
+    if (trimmedNumerator.isEmpty()) {
+        setLastError("Derived metric numerator channel cannot be empty");
+        return false;
+    }
+    if (trimmedDenominator.isEmpty()) {
+        setLastError("Derived metric denominator channel cannot be empty");
+        return false;
+    }
+
+    QJsonObject metric;
+    metric.insert("kind", "mean_ratio");
+    metric.insert("numerator_channel", trimmedNumerator);
+    metric.insert("denominator_channel", trimmedDenominator);
+    return setDerivedMetric(metric);
 }
 
 void DesktopController::loadWorkspace() {
@@ -584,6 +878,7 @@ void DesktopController::rebuildDerivedState() {
     executionHash_ = snapshot_.value("execution_hash").toString();
     commands_ = snapshot_.value("commands").toList();
     populations_ = snapshot_.value("populations").toList();
+    derivedMetric_ = snapshot_.value("derived_metric").toMap();
 
     QStringList populationKeys;
     for (const QVariant &value : populations_) {
@@ -598,21 +893,82 @@ void DesktopController::rebuildDerivedState() {
         selectedPopulationKey_ = populationKeys.contains("__all__") ? "__all__" : populationKeys.value(0);
         emit selectedPopulationKeyChanged();
     }
+    selectedPopulationStats_ = snapshot_.value("population_stats")
+                                   .toMap()
+                                   .value(selectedPopulationKey_)
+                                   .toMap();
 
     plots_.clear();
     for (const QVariant &value : snapshot_.value("plots").toList()) {
         QVariantMap plot = value.toMap();
-        const QVariantMap populationPoints = plot.value("population_points").toMap();
-        QVariantList highlightPoints;
-        if (selectedPopulationKey_ == "__all__") {
-            highlightPoints = plot.value("all_points").toList();
+        const QString kind = plot.value("kind").toString();
+        if (kind == "histogram") {
+            const QVariantMap populationBins = plot.value("population_bins").toMap();
+            QVariantList highlightBins;
+            if (selectedPopulationKey_ == "__all__") {
+                highlightBins = plot.value("all_bins").toList();
+            } else {
+                highlightBins = populationBins.value(selectedPopulationKey_).toList();
+            }
+            int highlightCount = 0;
+            for (const QVariant &binValue : highlightBins) {
+                highlightCount += binValue.toMap().value("count").toInt();
+            }
+            plot.insert("highlight_bins", highlightBins);
+            plot.insert("highlight_count", highlightCount);
         } else {
-            highlightPoints = populationPoints.value(selectedPopulationKey_).toList();
+            const QVariantMap populationPoints = plot.value("population_points").toMap();
+            QVariantList highlightPoints;
+            if (selectedPopulationKey_ == "__all__") {
+                highlightPoints = plot.value("all_points").toList();
+            } else {
+                highlightPoints = populationPoints.value(selectedPopulationKey_).toList();
+            }
+            plot.insert("highlight_points", highlightPoints);
+            plot.insert("highlight_count", highlightPoints.size());
         }
-        plot.insert("highlight_points", highlightPoints);
-        plot.insert("highlight_count", highlightPoints.size());
         plots_.push_back(plot);
     }
+
+    refreshSelectedPopulationComparison();
+}
+
+void DesktopController::refreshSelectedPopulationComparison() {
+    selectedPopulationComparison_.clear();
+
+    if (session_ == nullptr || status_ != "ready") {
+        return;
+    }
+
+    const QByteArray populationKeyUtf8 =
+        (selectedPopulationKey_.isEmpty() ? QStringLiteral("__all__") : selectedPopulationKey_)
+            .toUtf8();
+    const QString payload = takeRustString(
+        flowjoish_desktop_session_population_comparison_json(
+            session_,
+            populationKeyUtf8.constData()));
+    if (payload.isEmpty()) {
+        setLastError("Rust bridge returned an empty population comparison payload");
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document =
+        QJsonDocument::fromJson(payload.toUtf8(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        setLastError(
+            QStringLiteral("Failed to parse population comparison payload: %1")
+                .arg(parseError.errorString()));
+        return;
+    }
+
+    const QVariantMap parsed = document.object().toVariantMap();
+    if (parsed.value("status").toString() != "ready") {
+        setLastError(parsed.value("message").toString());
+        return;
+    }
+
+    selectedPopulationComparison_ = parsed.value("population_comparison").toMap();
 }
 
 void DesktopController::setLastError(const QString &message) {
@@ -631,6 +987,21 @@ void DesktopController::setWorkspacePath(const QString &path) {
 
     workspacePath_ = path;
     emit workspacePathChanged();
+}
+
+bool DesktopController::setDerivedMetric(const QJsonObject &metric) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QByteArray payload =
+        QJsonDocument(metric).toJson(QJsonDocument::Compact);
+    return applyRustPayload(
+        takeRustString(flowjoish_desktop_session_set_derived_metric_json(
+            session_,
+            payload.constData())),
+        true);
 }
 
 QString DesktopController::buildPresetCommandJson(const QString &presetId) const {

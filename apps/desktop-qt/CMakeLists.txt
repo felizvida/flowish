@@ -46,6 +46,8 @@ add_custom_target(flowjoish-rust-bridge ALL
 add_executable(flowjoish-desktop
     src/DesktopController.cpp
     src/DesktopController.h
+    src/HistogramPlotItem.cpp
+    src/HistogramPlotItem.h
     src/ScatterPlotItem.cpp
     src/ScatterPlotItem.h
     src/main.cpp

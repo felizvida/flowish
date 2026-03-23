@@ -8,7 +8,7 @@
 
 Parallax is a local-first cytometry workstation built around one shared Rust engine, an explicit command log, and a native Qt/QML desktop. It is designed for teams who care about speed, deterministic results, and a clean handoff between interactive desktop work and reproducible execution.
 
-Today, Parallax is an early but real workstation shell. You can launch the desktop, start from the bundled demo sample or import one or many `.fcs` files, switch between samples inside one local session, author rectangle and polygon gates directly on linked scatter plots, apply replayable compensation and transform settings, adjust plot views through explicit view actions, inspect the command log, and undo or redo gate actions through the same replayable state model.
+Today, Parallax is an early but real workstation shell. You can launch the desktop, start from the bundled demo sample or import one or many `.fcs` files, switch between samples inside one local session, assign cohort labels to samples, author rectangle and polygon gates directly on linked scatter plots, inspect a native histogram view for channel distributions, review per-population counts, frequencies, means, and medians, define replayable derived metrics such as positive fractions and mean ratios, compare the selected population across loaded samples, inspect grouped cohort summaries, export active-sample, selected-population, derived-metric, cohort-summary, or batch stats to CSV, apply replayable compensation and transform settings, adjust plot views through explicit view actions, inspect the command log, and undo or redo gate actions through the same replayable state model.
 
 ## Why Parallax
 
@@ -27,7 +27,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - [Real-World Testing](docs/REAL_WORLD_TESTING.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
 - [Operations Guide](docs/OPERATIONS.md)
-- [Release Notes](docs/releases/v0.2.0.md)
+- [Release Notes](docs/releases/v0.3.0.md)
 - [Architecture Decision Record](docs/architecture/adr-0001-rust-qt-rust-backend.md)
 
 ## Current Capabilities
@@ -38,6 +38,14 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Desktop FCS import and multi-sample switching in one local session
 - Workspace save/load that reopens sessions from sample sources plus replayable command history
 - Parsed FCS compensation toggle plus per-channel linear, signed-log10, asinh, biexponential, and logicle transform presets
+- Native histogram panel with population-aware highlighting for imported or demo samples
+- Population stats panel with matched-event counts, parent/all frequencies, and per-channel mean/median summaries
+- CSV export for active-sample population stats
+- Active-sample gate-template application across the other loaded samples
+- Batch population-stats CSV export across all loaded samples
+- Derived metric controls for replayable positive-fraction and mean-ratio formulas on the selected population
+- Cross-sample comparison panel for the selected population, with deltas versus the active sample plus derived-metric values and filtered comparison/derived-metric CSV export
+- Persisted sample group labels plus cohort summary cards, cohort-level derived-metric means, and cohort-summary CSV export
 - Replayable plot-view controls for auto extents, focus-on-population, and zoom in/out
 - Command log with undo and redo
 - Rust backend stub for parity-focused service surfaces
@@ -45,10 +53,11 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 
 ## Current Limits
 
-- Batch templates and cross-sample comparison workflows are not implemented yet
+- Multi-factor cohort labels, group template tools, and richer cohort-review layouts are not implemented yet
 - Workspace persistence is source-path based today; bundled raw-data snapshots and derived caches are not implemented yet
-- Compensation override editing, density or histogram plots, and reference-matched transform tuning are not implemented yet
-- Gate editing handles, pan/zoom, and reporting export are not implemented yet
+- Derived metrics are limited to positive fraction and mean ratio today; custom formula editors and spreadsheet-style expressions are not implemented yet
+- Compensation override editing, density plots, and reference-matched transform tuning are not implemented yet
+- Gate editing handles, pan/zoom, and figure/report export are not implemented yet
 - Cloud sync, jobs, and AI assistance are future phases
 
 ## Repository Layout

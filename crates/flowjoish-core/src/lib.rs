@@ -4,6 +4,7 @@ pub mod command;
 pub mod gating;
 pub mod hash;
 pub mod json;
+pub mod stats;
 pub mod workspace;
 
 pub use analysis::{
@@ -18,4 +19,8 @@ pub use gating::{
 };
 pub use hash::{StableHasher, stable_hash_bytes, stable_hash_str};
 pub use json::{JsonError, JsonValue};
+pub use stats::{
+    ChannelStats, PopulationStats, StatsError, compute_population_stats,
+    compute_population_stats_table,
+};
 pub use workspace::{ExecutionGraphNode, ReplayEnvironment, ReplayError, WorkspaceState};

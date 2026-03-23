@@ -61,6 +61,18 @@ To work with real data:
 - if the sample includes a parsed spillover matrix, use `Apply Parsed Compensation`
 - use the channel transform controls to switch between `Linear`, `Signed Log10`, `Asinh (150)`, `Biexponential`, and `Logicle`
 - use the `Auto`, `Focus`, `Zoom In`, and `Zoom Out` controls above each plot to adjust plot extents through replayable view actions
+- look for an additional histogram panel when the sample has a suitable non-structural channel
+- review `Population Stats` in the left rail for counts, frequencies, means, and medians
+- use `Export Stats CSV` to write the active sample's population stats to disk
+- use `Apply Template To Other Samples` to copy the active sample's gate tree onto the other loaded samples
+- use the `Active Sample Group` field to label the current sample as a cohort such as `Control`, `Treated`, or `Day 7`
+- use the `Derived Metric` panel to configure a replayable `Positive Fraction` or `Mean Ratio` for the selected population
+- review `Cross-Sample Comparison` to compare the selected population across the loaded samples
+- review `Cohort Summary` to compare group-level means for the selected population
+- use `Export Selected Comparison CSV` to write just that selected population comparison to disk
+- use `Export Derived Metric CSV` to write the selected population's per-sample derived-metric table to disk
+- use `Export Cohort Summary CSV` to write the grouped cohort summary to disk
+- use `Export Batch Stats CSV` to write grouped stats across every loaded sample
 - use `Save Workspace As` to persist the current local session
 - use `Load Workspace` to reopen a saved session later, as long as the referenced source files are still available
 
@@ -92,11 +104,14 @@ cargo run -p flowjoish-cli -- inspect-fcs /path/to/file.fcs
 
 ## What You Should See
 
-- A Parallax desktop window with two scatter plots
+- A Parallax desktop window with two scatter plots and, for most samples, one histogram panel
 - A sample list with the active sample highlighted
 - A populations list with `All Events`
 - A command log panel
 - Analysis settings for compensation and transforms
+- Derived metric controls for selected-population formulas
+- A population stats panel with channel summaries for the selected population
+- Batch template and batch stats export actions when multiple samples are loaded
 - Plot view controls for focus and zoom
 - Rectangle and polygon gating tools
 - Undo, redo, and reset controls
