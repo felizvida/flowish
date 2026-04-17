@@ -791,6 +791,23 @@ ApplicationWindow {
                                         }
 
                                         Text {
+                                            text: (modelData.available_sample_count || 0) > 0
+                                                  ? "Derived metric coverage "
+                                                    + (modelData.derived_metric_available_sample_count || 0)
+                                                    + " of " + (modelData.available_sample_count || 0)
+                                                    + " comparable samples"
+                                                    + ((modelData.derived_metric_unavailable_sample_count || 0) > 0
+                                                       ? "  •  "
+                                                         + modelData.derived_metric_unavailable_sample_count
+                                                         + " unavailable"
+                                                       : "")
+                                                  : "Derived metric coverage n/a until this cohort has the selected population"
+                                            color: "#6d5941"
+                                            font.pixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
                                             text: "Mean of all " + window.formatPercentOrNA(modelData.mean_frequency_of_all)
                                                   + "  •  Mean of parent " + window.formatPercentOrNA(modelData.mean_frequency_of_parent)
                                             color: "#6d5941"

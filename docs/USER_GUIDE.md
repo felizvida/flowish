@@ -184,7 +184,7 @@ How it behaves:
 - cohort labels are saved in the workspace and travel with the local session metadata
 - the cross-sample comparison panel uses the active sample as the baseline and reports per-sample deltas for frequency of all events and of parent
 - the comparison panel also reports the active derived metric for each sample when it can be evaluated
-- the cohort summary panel groups those per-sample rows by cohort label and reports group-level mean frequency plus mean derived metric value
+- the cohort summary panel groups those per-sample rows by cohort label, reports group-level mean frequency plus mean derived metric value, and shows how many comparable samples actually contributed to that metric
 - the active sample's cohort acts as the cohort-level baseline for delta reporting
 - if a loaded sample does not yet contain the selected population in its own gate history, the comparison panel marks it as missing instead of fabricating values
 - `Export Selected Comparison CSV` writes only the selected population comparison across the loaded samples

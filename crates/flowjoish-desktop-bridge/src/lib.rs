@@ -54,6 +54,8 @@ struct PopulationGroupSummaryRow {
     sample_count: usize,
     available_sample_count: usize,
     missing_sample_count: usize,
+    derived_metric_available_sample_count: usize,
+    derived_metric_unavailable_sample_count: usize,
     total_matched_events: usize,
     total_parent_events: usize,
     mean_frequency_of_all: Option<f64>,
@@ -3080,6 +3082,14 @@ fn population_group_summary_row_json(row: PopulationGroupSummaryRow) -> JsonValu
             JsonValue::Number(row.missing_sample_count as f64),
         ),
         (
+            "derived_metric_available_sample_count",
+            JsonValue::Number(row.derived_metric_available_sample_count as f64),
+        ),
+        (
+            "derived_metric_unavailable_sample_count",
+            JsonValue::Number(row.derived_metric_unavailable_sample_count as f64),
+        ),
+        (
             "total_matched_events",
             JsonValue::Number(row.total_matched_events as f64),
         ),
@@ -3157,12 +3167,12 @@ fn population_group_summary_csv(
     rows: &[PopulationGroupSummaryRow],
 ) -> String {
     let mut output = String::from(
-        "population_key,population_id,active_sample_id,active_group_label,group_label,is_active_group,sample_count,available_sample_count,missing_sample_count,total_matched_events,total_parent_events,mean_frequency_of_all,mean_frequency_of_parent,delta_mean_frequency_of_all,delta_mean_frequency_of_parent,mean_derived_metric_value,delta_mean_derived_metric_value\n",
+        "population_key,population_id,active_sample_id,active_group_label,group_label,is_active_group,sample_count,available_sample_count,missing_sample_count,derived_metric_available_sample_count,derived_metric_unavailable_sample_count,total_matched_events,total_parent_events,mean_frequency_of_all,mean_frequency_of_parent,delta_mean_frequency_of_all,delta_mean_frequency_of_parent,mean_derived_metric_value,delta_mean_derived_metric_value\n",
     );
     for row in rows {
         let _ = writeln!(
             output,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             csv_field(population_key),
             csv_field(population_id),
             csv_field(active_sample_id),
@@ -3172,6 +3182,8 @@ fn population_group_summary_csv(
             row.sample_count,
             row.available_sample_count,
             row.missing_sample_count,
+            row.derived_metric_available_sample_count,
+            row.derived_metric_unavailable_sample_count,
             row.total_matched_events,
             row.total_parent_events,
             csv_number(row.mean_frequency_of_all),
@@ -3300,8 +3312,16 @@ fn population_group_summaries(
                 .filter(|row| row.status == "available")
                 .copied()
                 .collect::<Vec<_>>();
+            let metric_available_rows = available_rows
+                .iter()
+                .filter(|row| row.derived_metric_value.is_some())
+                .copied()
+                .collect::<Vec<_>>();
             let available_sample_count = available_rows.len();
             let missing_sample_count = sample_count.saturating_sub(available_sample_count);
+            let derived_metric_available_sample_count = metric_available_rows.len();
+            let derived_metric_unavailable_sample_count =
+                available_sample_count.saturating_sub(derived_metric_available_sample_count);
             let total_matched_events = available_rows
                 .iter()
                 .filter_map(|row| row.matched_events)
@@ -3323,7 +3343,7 @@ fn population_group_summaries(
                     .collect::<Vec<_>>(),
             );
             let mean_derived_metric_value = average_option(
-                &available_rows
+                &metric_available_rows
                     .iter()
                     .filter_map(|row| row.derived_metric_value)
                     .collect::<Vec<_>>(),
@@ -3335,6 +3355,8 @@ fn population_group_summaries(
                 sample_count,
                 available_sample_count,
                 missing_sample_count,
+                derived_metric_available_sample_count,
+                derived_metric_unavailable_sample_count,
                 total_matched_events,
                 total_parent_events,
                 mean_frequency_of_all,
@@ -5569,6 +5591,18 @@ mod tests {
                 .and_then(JsonValue::as_bool),
             Some(true)
         );
+        assert_eq!(
+            group_summaries[0]
+                .get("derived_metric_available_sample_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            group_summaries[0]
+                .get("derived_metric_unavailable_sample_count")
+                .and_then(JsonValue::as_u64),
+            Some(0)
+        );
 
         let _ = session.apply_active_template_to_other_samples();
         let applied_comparison = session.population_comparison("lymphocytes");
@@ -5608,6 +5642,121 @@ mod tests {
                 .and_then(|row| row.get("delta_mean_derived_metric_value"))
                 .and_then(JsonValue::as_f64),
             Some(0.5)
+        );
+
+        let _ = fs::remove_file(alpha_path);
+        let _ = fs::remove_file(beta_path);
+    }
+
+    #[test]
+    fn cohort_summary_reports_derived_metric_coverage_separately() {
+        let alpha_path = write_temp_test_fcs(
+            "metric-coverage-alpha",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD3"],
+                vec![vec![10.0, 10.0, 1.0], vec![20.0, 20.0, 5.0]],
+                None,
+            ),
+        );
+        let beta_path = write_temp_test_fcs(
+            "metric-coverage-beta",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD4"],
+                vec![vec![12.0, 11.0, 8.0], vec![24.0, 19.0, 7.5]],
+                None,
+            ),
+        );
+
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![
+            JsonValue::String(alpha_path.to_string_lossy().to_string()),
+            JsonValue::String(beta_path.to_string_lossy().to_string()),
+        ])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
+
+        let gate = JsonValue::object([
+            ("kind", JsonValue::String("rectangle_gate".to_string())),
+            ("sample_id", JsonValue::String("metric-coverage-alpha".to_string())),
+            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(30.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(30.0)),
+        ])
+        .stringify_canonical();
+        let _ = session.dispatch_json(&gate);
+        let _ = session.apply_active_template_to_other_samples();
+        let _ = session.set_sample_group_label("metric-coverage-alpha", "Control");
+        let _ = session.set_sample_group_label("metric-coverage-beta", "Treated");
+
+        let derived_metric_payload = JsonValue::object([
+            ("kind", JsonValue::String("positive_fraction".to_string())),
+            ("channel", JsonValue::String("CD3".to_string())),
+            ("threshold", JsonValue::Number(1.5)),
+        ])
+        .stringify_canonical();
+        let _ = session.set_derived_metric_from_json(&derived_metric_payload);
+
+        let comparison = session.population_comparison("lymphocytes");
+        assert_eq!(comparison.get("status").and_then(JsonValue::as_str), Some("ready"));
+        let rows = comparison
+            .get("population_comparison")
+            .and_then(|value| value.get("samples"))
+            .and_then(JsonValue::as_array)
+            .expect("comparison rows");
+        assert_eq!(
+            rows[1]
+                .get("status")
+                .and_then(JsonValue::as_str),
+            Some("available")
+        );
+        assert_eq!(
+            rows[1]
+                .get("derived_metric_status")
+                .and_then(JsonValue::as_str),
+            Some("missing_channel")
+        );
+
+        let group_summaries = comparison
+            .get("population_comparison")
+            .and_then(|value| value.get("group_summaries"))
+            .and_then(JsonValue::as_array)
+            .expect("group summaries");
+        assert_eq!(group_summaries.len(), 2);
+        assert_eq!(
+            group_summaries[1]
+                .get("group_label")
+                .and_then(JsonValue::as_str),
+            Some("Treated")
+        );
+        assert_eq!(
+            group_summaries[1]
+                .get("available_sample_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            group_summaries[1]
+                .get("derived_metric_available_sample_count")
+                .and_then(JsonValue::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            group_summaries[1]
+                .get("derived_metric_unavailable_sample_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            group_summaries[1]
+                .get("mean_derived_metric_value")
+                .map(|value| matches!(value, JsonValue::Null)),
+            Some(true)
         );
 
         let _ = fs::remove_file(alpha_path);
@@ -5881,7 +6030,7 @@ mod tests {
         let exported =
             fs::read_to_string(&export_path).expect("read cohort summary export");
         assert!(exported.starts_with(
-            "population_key,population_id,active_sample_id,active_group_label,group_label,is_active_group,sample_count,available_sample_count,missing_sample_count,total_matched_events,total_parent_events,mean_frequency_of_all,mean_frequency_of_parent,delta_mean_frequency_of_all,delta_mean_frequency_of_parent,mean_derived_metric_value,delta_mean_derived_metric_value\n"
+            "population_key,population_id,active_sample_id,active_group_label,group_label,is_active_group,sample_count,available_sample_count,missing_sample_count,derived_metric_available_sample_count,derived_metric_unavailable_sample_count,total_matched_events,total_parent_events,mean_frequency_of_all,mean_frequency_of_parent,delta_mean_frequency_of_all,delta_mean_frequency_of_parent,mean_derived_metric_value,delta_mean_derived_metric_value\n"
         ));
         assert!(exported.contains("lymphocytes"));
 

@@ -46,6 +46,8 @@ add_custom_target(flowjoish-rust-bridge ALL
 add_executable(flowjoish-desktop
     src/DesktopController.cpp
     src/DesktopController.h
+    src/DesktopPayloadPolicy.cpp
+    src/DesktopPayloadPolicy.h
     src/HistogramPlotItem.cpp
     src/HistogramPlotItem.h
     src/ScatterPlotItem.cpp
@@ -65,3 +67,17 @@ target_link_libraries(flowjoish-desktop PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
     "${FLOWJOISH_RUST_LIB}"
 )
+
+enable_testing()
+
+add_executable(flowjoish-desktop-policy-tests
+    src/DesktopPayloadPolicy.cpp
+    src/DesktopPayloadPolicy.h
+    tests/DesktopPayloadPolicyTests.cpp
+)
+
+target_link_libraries(flowjoish-desktop-policy-tests PRIVATE
+    Qt${QT_VERSION_MAJOR}::Core
+)
+
+add_test(NAME flowjoish-desktop-policy-tests COMMAND flowjoish-desktop-policy-tests)

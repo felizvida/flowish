@@ -1,4 +1,5 @@
 #include "DesktopController.h"
+#include "DesktopPayloadPolicy.h"
 
 #include <QFileDialog>
 #include <QJsonArray>
@@ -847,24 +848,23 @@ bool DesktopController::applyRustPayload(const QString &payload, bool replaceSna
     }
 
     const QVariantMap parsed = document.object().toVariantMap();
-    const QString status = parsed.value("status").toString();
-    if (status != "ready") {
-        status_ = status.isEmpty() ? "error" : status;
-        setLastError(parsed.value("message").toString());
-        if (replaceSnapshotOnError) {
-            snapshot_ = parsed;
-            rebuildDerivedState();
-            emit snapshotChanged();
-        }
-        return false;
-    }
+    const DesktopPayloadDecision decision = evaluateDesktopPayloadTransition(
+        snapshot_,
+        parsed,
+        replaceSnapshotOnError);
 
-    snapshot_ = parsed;
-    status_ = status;
-    setLastError(QString());
-    rebuildDerivedState();
-    emit snapshotChanged();
-    return true;
+    status_ = decision.status;
+    setLastError(decision.errorMessage);
+    if (decision.shouldReplaceSnapshot) {
+        snapshot_ = parsed;
+    }
+    if (decision.shouldRebuildDerivedState) {
+        rebuildDerivedState();
+    }
+    if (decision.shouldEmitSnapshotChanged) {
+        emit snapshotChanged();
+    }
+    return decision.success;
 }
 
 void DesktopController::rebuildDerivedState() {
