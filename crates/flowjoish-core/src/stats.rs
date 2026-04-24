@@ -124,7 +124,11 @@ pub fn compute_population_stats_table(
     let mut values = Vec::with_capacity(state.populations.len() + 1);
     values.push(compute_population_stats(sample, state, "__all__")?);
     for node in &state.execution_graph {
-        values.push(compute_population_stats(sample, state, &node.population_id)?);
+        values.push(compute_population_stats(
+            sample,
+            state,
+            &node.population_id,
+        )?);
     }
     Ok(values)
 }
@@ -144,14 +148,14 @@ fn channel_stats(
         .collect::<Vec<_>>();
     values.sort_by(f64::total_cmp);
 
-    let mean = (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64);
+    let mean = mean(&values);
     let median = if values.is_empty() {
         None
     } else if values.len() % 2 == 1 {
         Some(values[values.len() / 2])
     } else {
         let upper = values.len() / 2;
-        Some((values[upper - 1] + values[upper]) / 2.0)
+        Some(midpoint(values[upper - 1], values[upper]))
     };
 
     ChannelStats {
@@ -159,6 +163,27 @@ fn channel_stats(
         mean,
         median,
     }
+}
+
+fn mean(values: &[f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+
+    let divisor = values.len() as f64;
+    let mut sum = 0.0;
+    let mut correction = 0.0;
+    for value in values {
+        let addend = (*value / divisor) - correction;
+        let next = sum + addend;
+        correction = (next - sum) - addend;
+        sum = next;
+    }
+    Some(sum)
+}
+
+fn midpoint(lower: f64, upper: f64) -> f64 {
+    (lower / 2.0) + (upper / 2.0)
 }
 
 fn frequency(count: usize, total: usize) -> f64 {
@@ -174,7 +199,7 @@ mod tests {
     use super::{StatsError, compute_population_stats, compute_population_stats_table};
     use crate::command::{Command, CommandLog};
     use crate::workspace::ReplayEnvironment;
-    use crate::{Point2D, SampleFrame};
+    use crate::{Point2D, SampleFrame, WorkspaceState};
 
     fn sample() -> SampleFrame {
         SampleFrame::new(
@@ -266,5 +291,41 @@ mod tests {
         let error = compute_population_stats(&sample(), &replay_state(), "missing")
             .expect_err("missing population should fail");
         assert_eq!(error, StatsError::UnknownPopulation("missing".to_string()));
+    }
+
+    #[test]
+    fn stats_mean_and_median_avoid_overflow_for_large_finite_values() {
+        let empty_state = WorkspaceState {
+            populations: Default::default(),
+            execution_graph: Vec::new(),
+            execution_hash: 0,
+        };
+
+        let opposing_extremes = SampleFrame::new(
+            "opposing-extremes",
+            vec!["signal".to_string()],
+            vec![
+                vec![-f64::MAX],
+                vec![-f64::MAX],
+                vec![f64::MAX],
+                vec![f64::MAX],
+            ],
+        )
+        .expect("valid sample");
+        let stats = compute_population_stats(&opposing_extremes, &empty_state, "__all__")
+            .expect("stats succeed");
+        assert_eq!(stats.channel_stats[0].mean, Some(0.0));
+        assert_eq!(stats.channel_stats[0].median, Some(0.0));
+
+        let same_sign_extremes = SampleFrame::new(
+            "same-sign-extremes",
+            vec!["signal".to_string()],
+            vec![vec![f64::MAX], vec![f64::MAX]],
+        )
+        .expect("valid sample");
+        let stats = compute_population_stats(&same_sign_extremes, &empty_state, "__all__")
+            .expect("stats succeed");
+        assert_eq!(stats.channel_stats[0].mean, Some(f64::MAX));
+        assert_eq!(stats.channel_stats[0].median, Some(f64::MAX));
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
@@ -16,7 +16,9 @@ pub struct CompensationMatrix {
 pub enum ChannelTransform {
     Linear,
     SignedLog10,
-    Asinh { cofactor: f64 },
+    Asinh {
+        cofactor: f64,
+    },
     Biexponential {
         width_basis: f64,
         positive_decades: f64,
@@ -50,7 +52,10 @@ impl Display for AnalysisError {
             Self::MissingCompensation => write!(f, "sample does not provide a compensation matrix"),
             Self::InvalidCompensation(message) => f.write_str(message),
             Self::MissingCompensationChannel(channel) => {
-                write!(f, "compensation matrix references unknown channel '{channel}'")
+                write!(
+                    f,
+                    "compensation matrix references unknown channel '{channel}'"
+                )
             }
             Self::UnknownTransformChannel(channel) => {
                 write!(f, "transform references unknown channel '{channel}'")
@@ -208,6 +213,19 @@ fn apply_compensation_in_place(
             matrix.values.len()
         )));
     }
+    if matrix.values.iter().any(|value| !value.is_finite()) {
+        return Err(AnalysisError::InvalidCompensation(
+            "compensation matrix values must be finite".to_string(),
+        ));
+    }
+    let mut seen_parameters = BTreeSet::new();
+    for channel in &matrix.parameter_names {
+        if !seen_parameters.insert(channel) {
+            return Err(AnalysisError::InvalidCompensation(format!(
+                "compensation matrix includes duplicate channel '{channel}'"
+            )));
+        }
+    }
 
     let channel_indices = matrix
         .parameter_names
@@ -291,8 +309,7 @@ fn invert_matrix(dimension: usize, values: &[f64]) -> Result<Vec<f64>, AnalysisE
     let mut inverse = vec![0.0; dimension * dimension];
     for row in 0..dimension {
         for column in 0..dimension {
-            inverse[row * dimension + column] =
-                augmented[row * width + dimension + column];
+            inverse[row * dimension + column] = augmented[row * width + dimension + column];
         }
     }
     Ok(inverse)
@@ -322,10 +339,7 @@ mod tests {
         SampleFrame::new(
             "sample-a",
             vec!["FL1".to_string(), "FL2".to_string(), "SSC-A".to_string()],
-            vec![
-                vec![110.0, 70.0, 10.0],
-                vec![220.0, 140.0, 20.0],
-            ],
+            vec![vec![110.0, 70.0, 10.0], vec![220.0, 140.0, 20.0]],
         )
         .expect("valid sample")
     }
@@ -409,6 +423,54 @@ mod tests {
         };
         let error = apply_sample_analysis(&sample(), None, &profile).expect_err("missing matrix");
         assert_eq!(error, AnalysisError::MissingCompensation);
+    }
+
+    #[test]
+    fn rejects_non_finite_compensation_values() {
+        let matrix = CompensationMatrix {
+            source_key: "$SPILLOVER".to_string(),
+            dimension: 2,
+            parameter_names: vec!["FL1".to_string(), "FL2".to_string()],
+            values: vec![1.0, f64::NAN, 0.0, 1.0],
+        };
+        let profile = SampleAnalysisProfile {
+            compensation_enabled: true,
+            transforms: BTreeMap::new(),
+        };
+
+        let error = apply_sample_analysis(&sample(), Some(&matrix), &profile)
+            .expect_err("non-finite compensation should fail");
+
+        assert_eq!(
+            error,
+            AnalysisError::InvalidCompensation(
+                "compensation matrix values must be finite".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_compensation_channels() {
+        let matrix = CompensationMatrix {
+            source_key: "$SPILLOVER".to_string(),
+            dimension: 2,
+            parameter_names: vec!["FL1".to_string(), "FL1".to_string()],
+            values: vec![1.0, 0.0, 0.0, 1.0],
+        };
+        let profile = SampleAnalysisProfile {
+            compensation_enabled: true,
+            transforms: BTreeMap::new(),
+        };
+
+        let error = apply_sample_analysis(&sample(), Some(&matrix), &profile)
+            .expect_err("duplicate compensation channels should fail");
+
+        assert_eq!(
+            error,
+            AnalysisError::InvalidCompensation(
+                "compensation matrix includes duplicate channel 'FL1'".to_string()
+            )
+        );
     }
 
     #[test]
