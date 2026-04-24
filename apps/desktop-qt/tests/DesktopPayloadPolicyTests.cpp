@@ -79,5 +79,58 @@ int main() {
         }
     }
 
+    {
+        QVariantMap snapshot{
+            {"status", "ready"},
+            {"sample", QVariantMap{{"id", "sample-a"}}},
+            {"comparison_state_hash", "comparison-1"},
+            {"execution_hash", "view-1"},
+        };
+        QVariantMap viewOnlySnapshot = snapshot;
+        viewOnlySnapshot.insert("execution_hash", "view-2");
+
+        const QString first = buildDesktopComparisonCacheKey(
+            snapshot,
+            "lymphocytes",
+            "ready");
+        const QString viewOnly = buildDesktopComparisonCacheKey(
+            viewOnlySnapshot,
+            "lymphocytes",
+            "ready");
+        if (expect(first == viewOnly, "view-only hashes should not change comparison key")) {
+            return 1;
+        }
+
+        const QString differentPopulation = buildDesktopComparisonCacheKey(
+            snapshot,
+            "cd3_cd4",
+            "ready");
+        if (expect(first != differentPopulation, "population changes should change comparison key")) {
+            return 1;
+        }
+
+        QVariantMap differentActiveSample = snapshot;
+        differentActiveSample.insert("sample", QVariantMap{{"id", "sample-b"}});
+        const QString differentSample = buildDesktopComparisonCacheKey(
+            differentActiveSample,
+            "lymphocytes",
+            "ready");
+        if (expect(first != differentSample, "active sample changes should change comparison key")) {
+            return 1;
+        }
+    }
+
+    {
+        QVariantMap errorSnapshot{
+            {"sample", QVariantMap{{"id", "sample-a"}}},
+            {"comparison_state_hash", "comparison-1"},
+        };
+        if (expect(
+                buildDesktopComparisonCacheKey(errorSnapshot, "lymphocytes", "error").isEmpty(),
+                "non-ready snapshots should not build comparison cache keys")) {
+            return 1;
+        }
+    }
+
     return 0;
 }

@@ -16,3 +16,8 @@ DesktopPayloadDecision evaluateDesktopPayloadTransition(
     const QVariantMap &currentSnapshot,
     const QVariantMap &parsedPayload,
     bool replaceSnapshotOnError);
+
+QString buildDesktopComparisonCacheKey(
+    const QVariantMap &snapshot,
+    const QString &populationKey,
+    const QString &status);

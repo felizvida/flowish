@@ -934,7 +934,19 @@ void DesktopController::rebuildDerivedState() {
 }
 
 void DesktopController::refreshSelectedPopulationComparison() {
+    const QString cacheKey =
+        buildDesktopComparisonCacheKey(snapshot_, selectedPopulationKey_, status_);
+    if (cacheKey.isEmpty()) {
+        selectedPopulationComparison_.clear();
+        selectedPopulationComparisonCacheKey_.clear();
+        return;
+    }
+    if (cacheKey == selectedPopulationComparisonCacheKey_) {
+        return;
+    }
+
     selectedPopulationComparison_.clear();
+    selectedPopulationComparisonCacheKey_.clear();
 
     if (session_ == nullptr || status_ != "ready") {
         return;
@@ -969,6 +981,7 @@ void DesktopController::refreshSelectedPopulationComparison() {
     }
 
     selectedPopulationComparison_ = parsed.value("population_comparison").toMap();
+    selectedPopulationComparisonCacheKey_ = cacheKey;
 }
 
 void DesktopController::setLastError(const QString &message) {

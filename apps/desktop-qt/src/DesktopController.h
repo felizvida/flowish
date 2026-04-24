@@ -134,6 +134,7 @@ private:
     QVariantMap derivedMetric_;
     QVariantMap selectedPopulationStats_;
     QVariantMap selectedPopulationComparison_;
+    QString selectedPopulationComparisonCacheKey_;
     QString status_ = "booting";
     int commandCount_ = 0;
     bool canUndo_ = false;

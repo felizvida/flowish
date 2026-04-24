@@ -1,5 +1,7 @@
 #include "DesktopPayloadPolicy.h"
 
+#include <QStringList>
+
 DesktopPayloadDecision evaluateDesktopPayloadTransition(
     const QVariantMap &currentSnapshot,
     const QVariantMap &parsedPayload,
@@ -25,4 +27,27 @@ DesktopPayloadDecision evaluateDesktopPayloadTransition(
     decision.status = status.isEmpty() ? "error" : status;
     decision.errorMessage = parsedPayload.value("message").toString();
     return decision;
+}
+
+QString buildDesktopComparisonCacheKey(
+    const QVariantMap &snapshot,
+    const QString &populationKey,
+    const QString &status) {
+    if (status != "ready") {
+        return QString();
+    }
+
+    QString comparisonStateHash = snapshot.value("comparison_state_hash").toString();
+    if (comparisonStateHash.isEmpty()) {
+        comparisonStateHash = snapshot.value("execution_hash").toString();
+    }
+    if (comparisonStateHash.isEmpty()) {
+        return QString();
+    }
+
+    const QString sampleId = snapshot.value("sample").toMap().value("id").toString();
+    const QString normalizedPopulation =
+        populationKey.trimmed().isEmpty() ? QStringLiteral("__all__") : populationKey;
+
+    return QStringList{sampleId, normalizedPopulation, comparisonStateHash}.join("|");
 }

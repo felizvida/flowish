@@ -8,9 +8,9 @@ use std::path::Path;
 use std::ptr;
 
 use flowjoish_core::{
-    BitMask, ChannelTransform, Command, CommandLog, CompensationMatrix, JsonValue,
-    PopulationStats, ReplayEnvironment, SampleAnalysisProfile, SampleFrame, StableHasher,
-    WorkspaceState, apply_sample_analysis, compute_population_stats_table,
+    BitMask, ChannelTransform, Command, CommandLog, CompensationMatrix, JsonValue, PopulationStats,
+    ReplayEnvironment, SampleAnalysisProfile, SampleFrame, StableHasher, WorkspaceState,
+    apply_sample_analysis, compute_population_stats_table,
 };
 use flowjoish_fcs::parse as parse_fcs;
 
@@ -87,7 +87,10 @@ struct DerivedMetricEvaluation {
 
 #[derive(Clone, Debug, PartialEq)]
 enum AnalysisAction {
-    SetCompensationEnabled { sample_id: String, enabled: bool },
+    SetCompensationEnabled {
+        sample_id: String,
+        enabled: bool,
+    },
     SetChannelTransform {
         sample_id: String,
         channel: String,
@@ -184,6 +187,12 @@ impl DerivedMetricDefinition {
         }
     }
 
+    fn stable_hash(&self) -> u64 {
+        let mut hasher = StableHasher::new();
+        hasher.update_str(&self.to_json_value().stringify_canonical());
+        hasher.finish_u64()
+    }
+
     fn to_json_value(&self) -> JsonValue {
         match self {
             Self::PositiveFraction { channel, threshold } => JsonValue::object([
@@ -220,7 +229,9 @@ impl DerivedMetricDefinition {
                 let channel = value
                     .get("channel")
                     .and_then(JsonValue::as_str)
-                    .ok_or_else(|| "positive_fraction derived metric is missing channel".to_string())?
+                    .ok_or_else(|| {
+                        "positive_fraction derived metric is missing channel".to_string()
+                    })?
                     .to_string();
                 let threshold = value
                     .get("threshold")
@@ -310,7 +321,8 @@ impl AnalysisAction {
                 sample_id: required_json_string(value, "sample_id")?.to_string(),
                 channel: required_json_string(value, "channel")?.to_string(),
                 transform: parse_transform_json(
-                    value.get("transform")
+                    value
+                        .get("transform")
                         .ok_or_else(|| "missing field 'transform'".to_string())?,
                 )?,
             }),
@@ -398,7 +410,9 @@ impl AnalysisActionLog {
                 AnalysisAction::SetChannelTransform {
                     channel, transform, ..
                 } => {
-                    profile.transforms.insert(channel.clone(), transform.clone());
+                    profile
+                        .transforms
+                        .insert(channel.clone(), transform.clone());
                 }
             }
 
@@ -594,12 +608,16 @@ impl ViewActionLog {
                     ..
                 } => focus_plot_range(sample, state, plot, population_id, *padding_fraction)?,
                 ViewAction::ScalePlotView { factor, .. } => {
-                    let current = ranges
-                        .get(record.action.plot_id())
-                        .cloned()
-                        .ok_or_else(|| {
-                            format!("missing active range for plot '{}'", record.action.plot_id())
-                        })?;
+                    let current =
+                        ranges
+                            .get(record.action.plot_id())
+                            .cloned()
+                            .ok_or_else(|| {
+                                format!(
+                                    "missing active range for plot '{}'",
+                                    record.action.plot_id()
+                                )
+                            })?;
                     scale_plot_range(&current, *factor)?
                 }
             };
@@ -645,7 +663,8 @@ impl AnalysisActionRecord {
             .ok_or_else(|| "missing field 'action_hash'".to_string())
             .and_then(|value| parse_hex_u64(value, "action_hash"))?;
         let action = AnalysisAction::from_json_value(
-            value.get("action")
+            value
+                .get("action")
                 .ok_or_else(|| "missing field 'action'".to_string())?,
         )?;
         let expected_hash = action.stable_hash();
@@ -699,7 +718,8 @@ impl ViewActionRecord {
             .ok_or_else(|| "missing field 'action_hash'".to_string())
             .and_then(|value| parse_hex_u64(value, "action_hash"))?;
         let action = ViewAction::from_json_value(
-            value.get("action")
+            value
+                .get("action")
                 .ok_or_else(|| "missing field 'action'".to_string())?,
         )?;
         let expected_hash = action.stable_hash();
@@ -848,7 +868,8 @@ impl DesktopSession {
             .redo_stacks
             .get(&self.sample_id)
             .ok_or_else(|| format!("missing redo state for sample '{}'", self.sample_id))?;
-        let (processed_sample, analysis_profile, state, execution_hash) = self.active_replay_state()?;
+        let (processed_sample, analysis_profile, state, execution_hash) =
+            self.active_replay_state()?;
         let plot_specs = default_plot_specs(&processed_sample);
         let plot_ranges = view_log.replay_ranges(
             processed_sample.sample_id(),
@@ -898,14 +919,8 @@ impl DesktopSession {
                 "view_action_count",
                 JsonValue::Number(view_log.records().len() as f64),
             ),
-            (
-                "can_undo",
-                JsonValue::Bool(!command_log.is_empty()),
-            ),
-            (
-                "can_redo",
-                JsonValue::Bool(!redo_stack.is_empty()),
-            ),
+            ("can_undo", JsonValue::Bool(!command_log.is_empty())),
+            ("can_redo", JsonValue::Bool(!redo_stack.is_empty())),
             (
                 "command_log_hash",
                 JsonValue::String(format!("{:016x}", command_log.execution_hash())),
@@ -913,6 +928,10 @@ impl DesktopSession {
             (
                 "execution_hash",
                 JsonValue::String(format!("{:016x}", execution_hash)),
+            ),
+            (
+                "comparison_state_hash",
+                JsonValue::String(format!("{:016x}", self.comparison_state_hash()?)),
             ),
             ("commands", commands_json(command_log)),
             ("analysis_actions", analysis_actions_json(analysis_log)),
@@ -1053,14 +1072,11 @@ impl DesktopSession {
         if let Err(error) = replay_environment.insert_sample(processed_sample) {
             return error_json_value(error.to_string());
         }
-        if let Err(error) = self
-            .active_command_log()
-            .and_then(|command_log| {
-                command_log
-                    .replay(&replay_environment)
-                    .map_err(|error| error.to_string())
-            })
-        {
+        if let Err(error) = self.active_command_log().and_then(|command_log| {
+            command_log
+                .replay(&replay_environment)
+                .map_err(|error| error.to_string())
+        }) {
             return error_json_value(error);
         }
 
@@ -1116,7 +1132,9 @@ impl DesktopSession {
         let sample_id = self.sample_id.clone();
         let popped = match self.command_logs.get_mut(&sample_id) {
             Some(command_log) => command_log.pop(),
-            None => return error_json_value(format!("missing command log for sample '{sample_id}'")),
+            None => {
+                return error_json_value(format!("missing command log for sample '{sample_id}'"));
+            }
         };
 
         match popped {
@@ -1135,7 +1153,9 @@ impl DesktopSession {
         let sample_id = self.sample_id.clone();
         let next_command = match self.redo_stacks.get_mut(&sample_id) {
             Some(redo_stack) => redo_stack.pop(),
-            None => return error_json_value(format!("missing redo state for sample '{sample_id}'")),
+            None => {
+                return error_json_value(format!("missing redo state for sample '{sample_id}'"));
+            }
         };
 
         match next_command {
@@ -1404,14 +1424,8 @@ impl DesktopSession {
                         "missing_sample_count",
                         JsonValue::Number(missing_sample_count as f64),
                     ),
-                    (
-                        "active_group_label",
-                        JsonValue::String(active_group_label),
-                    ),
-                    (
-                        "derived_metric",
-                        self.derived_metric.to_json_value(),
-                    ),
+                    ("active_group_label", JsonValue::String(active_group_label)),
+                    ("derived_metric", self.derived_metric.to_json_value()),
                     (
                         "samples",
                         JsonValue::Array(
@@ -1434,7 +1448,11 @@ impl DesktopSession {
         ])
     }
 
-    fn export_population_comparison_csv(&self, population_key: &str, export_path: &str) -> JsonValue {
+    fn export_population_comparison_csv(
+        &self,
+        population_key: &str,
+        export_path: &str,
+    ) -> JsonValue {
         if population_key.trim().is_empty() {
             return error_json_value("population comparison key cannot be empty");
         }
@@ -1467,7 +1485,11 @@ impl DesktopSession {
             .unwrap_or_else(|message| error_json_value(message))
     }
 
-    fn export_population_group_summary_csv(&self, population_key: &str, export_path: &str) -> JsonValue {
+    fn export_population_group_summary_csv(
+        &self,
+        population_key: &str,
+        export_path: &str,
+    ) -> JsonValue {
         if population_key.trim().is_empty() {
             return error_json_value("population group summary key cannot be empty");
         }
@@ -1524,7 +1546,11 @@ impl DesktopSession {
             .unwrap_or_else(|message| error_json_value(message))
     }
 
-    fn export_population_derived_metric_csv(&self, population_key: &str, export_path: &str) -> JsonValue {
+    fn export_population_derived_metric_csv(
+        &self,
+        population_key: &str,
+        export_path: &str,
+    ) -> JsonValue {
         if population_key.trim().is_empty() {
             return error_json_value("population derived metric key cannot be empty");
         }
@@ -1594,7 +1620,12 @@ impl DesktopSession {
         environment
             .insert_sample(processed_sample.clone())
             .map_err(|error| error.to_string())?;
-        Ok((processed_sample, analysis_profile, execution_hash, environment))
+        Ok((
+            processed_sample,
+            analysis_profile,
+            execution_hash,
+            environment,
+        ))
     }
 
     fn active_replay_state(
@@ -1637,7 +1668,12 @@ impl DesktopSession {
         environment
             .insert_sample(processed_sample.clone())
             .map_err(|error| error.to_string())?;
-        Ok((processed_sample, analysis_profile, execution_hash, environment))
+        Ok((
+            processed_sample,
+            analysis_profile,
+            execution_hash,
+            environment,
+        ))
     }
 
     fn replay_state_for_sample(
@@ -1673,18 +1709,47 @@ impl DesktopSession {
         Ok((processed_sample, profile, state, hasher.finish_u64()))
     }
 
+    fn comparison_state_hash(&self) -> Result<u64, String> {
+        let mut hasher = StableHasher::new();
+        hasher.update_str(&self.sample_id);
+        hasher.update_u64(self.derived_metric.stable_hash());
+        hasher.update_u64(self.sample_order.len() as u64);
+
+        for sample_id in &self.sample_order {
+            hasher.update_str(sample_id);
+            let sample = &self.sample_artifact_for(sample_id)?.raw_sample;
+            let info = self
+                .sample_info
+                .get(sample_id)
+                .ok_or_else(|| format!("missing sample info '{}'", sample_id))?;
+            hasher.update_u64(sample.event_count() as u64);
+            hasher.update_u64(sample.channels().len() as u64);
+            for channel in sample.channels() {
+                hasher.update_str(channel);
+            }
+            hasher.update_str(&info.display_name);
+            hasher.update_str(info.source_path.as_deref().unwrap_or(""));
+            hasher.update_str(&info.group_label);
+            hasher.update_u64(self.command_log_for_sample(sample_id)?.execution_hash());
+            hasher.update_u64(self.analysis_log_for_sample(sample_id)?.execution_hash());
+        }
+
+        Ok(hasher.finish_u64())
+    }
+
     fn population_comparison_rows(
         &self,
         population_key: &str,
     ) -> Result<(String, Vec<PopulationComparisonRow>), String> {
         let (active_sample, _, active_state, _) = self.active_replay_state()?;
-        let active_stats = find_population_stats_for_key(&active_sample, &active_state, population_key)?
-            .ok_or_else(|| {
-                format!(
-                    "active sample '{}' does not contain population '{}'",
-                    self.sample_id, population_key
-                )
-            })?;
+        let active_stats =
+            find_population_stats_for_key(&active_sample, &active_state, population_key)?
+                .ok_or_else(|| {
+                    format!(
+                        "active sample '{}' does not contain population '{}'",
+                        self.sample_id, population_key
+                    )
+                })?;
         let population_id = active_stats.population_id.clone();
         let baseline_frequency_of_all = active_stats.frequency_of_all;
         let baseline_frequency_of_parent = active_stats.frequency_of_parent;
@@ -1824,10 +1889,7 @@ impl DesktopSession {
         }
 
         Ok(JsonValue::object([
-            (
-                "kind",
-                JsonValue::String("parallax_workspace".to_string()),
-            ),
+            ("kind", JsonValue::String("parallax_workspace".to_string())),
             ("version", JsonValue::Number(1.0)),
             (
                 "active_sample_id",
@@ -1942,7 +2004,9 @@ impl ImportedSession {
             let artifact = load_sample_artifact_from_source(&spec.source, &spec.id)?;
             environment
                 .insert_sample(artifact.raw_sample.clone())
-                .map_err(|error| format!("failed to load workspace sample '{}': {error}", spec.id))?;
+                .map_err(|error| {
+                    format!("failed to load workspace sample '{}': {error}", spec.id)
+                })?;
             sample_artifacts.insert(spec.id.clone(), artifact);
             sample_order.push(spec.id.clone());
             sample_info.insert(
@@ -2015,11 +2079,7 @@ impl WorkspaceDocument {
     }
 
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
-        if value
-            .get("kind")
-            .and_then(JsonValue::as_str)
-            != Some("parallax_workspace")
-        {
+        if value.get("kind").and_then(JsonValue::as_str) != Some("parallax_workspace") {
             return Err("workspace document kind must be 'parallax_workspace'".to_string());
         }
 
@@ -2038,8 +2098,14 @@ impl WorkspaceDocument {
         let mut sample_specs = Vec::with_capacity(samples_value.len());
         for sample_value in samples_value {
             let spec = WorkspaceSampleSpec::from_json_value(sample_value)?;
-            if sample_specs.iter().any(|existing: &WorkspaceSampleSpec| existing.id == spec.id) {
-                return Err(format!("workspace contains duplicate sample id '{}'", spec.id));
+            if sample_specs
+                .iter()
+                .any(|existing: &WorkspaceSampleSpec| existing.id == spec.id)
+            {
+                return Err(format!(
+                    "workspace contains duplicate sample id '{}'",
+                    spec.id
+                ));
             }
             sample_specs.push(spec);
         }
@@ -2052,9 +2118,7 @@ impl WorkspaceDocument {
             Some(value) => DerivedMetricDefinition::from_json_value(value)?,
             None => default_derived_metric_for_sample(None),
         };
-        let analysis_logs_object = value
-            .get("analysis_logs")
-            .and_then(JsonValue::as_object);
+        let analysis_logs_object = value.get("analysis_logs").and_then(JsonValue::as_object);
         let view_logs_object = value.get("view_logs").and_then(JsonValue::as_object);
         let redo_stacks_object = value
             .get("redo_stacks")
@@ -2140,8 +2204,9 @@ impl WorkspaceDocument {
             analysis_logs.insert(spec.id.clone(), analysis_log);
 
             let view_log = match view_logs_object.and_then(|object| object.get(&spec.id)) {
-                Some(value) => ViewActionLog::from_json_value(value)
-                    .map_err(|error| format!("invalid view log for sample '{}': {error}", spec.id))?,
+                Some(value) => ViewActionLog::from_json_value(value).map_err(|error| {
+                    format!("invalid view log for sample '{}': {error}", spec.id)
+                })?,
                 None => ViewActionLog::new(),
             };
             for record in view_log.records() {
@@ -2236,9 +2301,10 @@ impl WorkspaceSampleSpec {
 
         let source = match source_kind {
             "embedded_demo" => WorkspaceSampleSource::EmbeddedDemo,
-            "fcs_file" => WorkspaceSampleSource::FcsFile(source_path.ok_or_else(|| {
-                format!("workspace sample '{}' is missing source_path", id)
-            })?),
+            "fcs_file" => WorkspaceSampleSource::FcsFile(
+                source_path
+                    .ok_or_else(|| format!("workspace sample '{}' is missing source_path", id))?,
+            ),
             other => {
                 return Err(format!(
                     "workspace sample '{}' has unknown source_kind '{}'",
@@ -2347,9 +2413,9 @@ pub extern "C" fn flowjoish_desktop_session_import_fcs_json(
 
     let file_paths_json = unsafe { CStr::from_ptr(file_paths_json) };
     match file_paths_json.to_str() {
-        Ok(file_paths_json) => {
-            with_session_payload(session, |session| Ok(session.import_fcs_json(file_paths_json)))
-        }
+        Ok(file_paths_json) => with_session_payload(session, |session| {
+            Ok(session.import_fcs_json(file_paths_json))
+        }),
         Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
     }
 }
@@ -2360,12 +2426,16 @@ pub extern "C" fn flowjoish_desktop_session_select_sample(
     sample_id: *const c_char,
 ) -> *mut c_char {
     if sample_id.is_null() {
-        return payload_to_ptr(error_json_value("sample id pointer was null").stringify_canonical());
+        return payload_to_ptr(
+            error_json_value("sample id pointer was null").stringify_canonical(),
+        );
     }
 
     let sample_id = unsafe { CStr::from_ptr(sample_id) };
     match sample_id.to_str() {
-        Ok(sample_id) => with_session_payload(session, |session| Ok(session.select_sample(sample_id))),
+        Ok(sample_id) => {
+            with_session_payload(session, |session| Ok(session.select_sample(sample_id)))
+        }
         Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
     }
 }
@@ -2384,7 +2454,10 @@ pub extern "C" fn flowjoish_desktop_session_save_workspace(
     let workspace_path = unsafe { CStr::from_ptr(workspace_path) };
     match workspace_path.to_str() {
         Ok(workspace_path) => {
-            with_session_payload(session, |session| Ok(session.save_workspace(workspace_path)))
+            with_session_payload(
+                session,
+                |session| Ok(session.save_workspace(workspace_path)),
+            )
         }
         Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
     }
@@ -2404,7 +2477,10 @@ pub extern "C" fn flowjoish_desktop_session_load_workspace(
     let workspace_path = unsafe { CStr::from_ptr(workspace_path) };
     match workspace_path.to_str() {
         Ok(workspace_path) => {
-            with_session_payload(session, |session| Ok(session.load_workspace(workspace_path)))
+            with_session_payload(
+                session,
+                |session| Ok(session.load_workspace(workspace_path)),
+            )
         }
         Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
     }
@@ -2434,7 +2510,9 @@ pub extern "C" fn flowjoish_desktop_session_export_stats_csv(
 pub extern "C" fn flowjoish_desktop_session_apply_active_template_to_other_samples(
     session: *mut DesktopSession,
 ) -> *mut c_char {
-    with_session_payload(session, |session| Ok(session.apply_active_template_to_other_samples()))
+    with_session_payload(session, |session| {
+        Ok(session.apply_active_template_to_other_samples())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -2470,9 +2548,9 @@ pub extern "C" fn flowjoish_desktop_session_population_comparison_json(
 
     let population_key = unsafe { CStr::from_ptr(population_key) };
     match population_key.to_str() {
-        Ok(population_key) => {
-            with_session_payload(session, |session| Ok(session.population_comparison(population_key)))
-        }
+        Ok(population_key) => with_session_payload(session, |session| {
+            Ok(session.population_comparison(population_key))
+        }),
         Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
     }
 }
@@ -2499,10 +2577,7 @@ pub extern "C" fn flowjoish_desktop_session_export_population_comparison_csv(
     let export_path = unsafe { CStr::from_ptr(export_path) };
     match (population_key.to_str(), export_path.to_str()) {
         (Ok(population_key), Ok(export_path)) => with_session_payload(session, |session| {
-            Ok(session.export_population_comparison_csv(
-                population_key,
-                export_path,
-            ))
+            Ok(session.export_population_comparison_csv(population_key, export_path))
         }),
         (Err(error), _) | (_, Err(error)) => {
             payload_to_ptr(error_json_value(error.to_string()).stringify_canonical())
@@ -2532,10 +2607,7 @@ pub extern "C" fn flowjoish_desktop_session_export_population_group_summary_csv(
     let export_path = unsafe { CStr::from_ptr(export_path) };
     match (population_key.to_str(), export_path.to_str()) {
         (Ok(population_key), Ok(export_path)) => with_session_payload(session, |session| {
-            Ok(session.export_population_group_summary_csv(
-                population_key,
-                export_path,
-            ))
+            Ok(session.export_population_group_summary_csv(population_key, export_path))
         }),
         (Err(error), _) | (_, Err(error)) => {
             payload_to_ptr(error_json_value(error.to_string()).stringify_canonical())
@@ -2586,10 +2658,7 @@ pub extern "C" fn flowjoish_desktop_session_export_population_derived_metric_csv
     let export_path = unsafe { CStr::from_ptr(export_path) };
     match (population_key.to_str(), export_path.to_str()) {
         (Ok(population_key), Ok(export_path)) => with_session_payload(session, |session| {
-            Ok(session.export_population_derived_metric_csv(
-                population_key,
-                export_path,
-            ))
+            Ok(session.export_population_derived_metric_csv(population_key, export_path))
         }),
         (Err(error), _) | (_, Err(error)) => {
             payload_to_ptr(error_json_value(error.to_string()).stringify_canonical())
@@ -2690,9 +2759,7 @@ fn desktop_application_json() -> JsonValue {
         ("name", JsonValue::String("Parallax".to_string())),
         (
             "tagline",
-            JsonValue::String(
-                "Fast, trustworthy, reproducible cytometry analysis".to_string(),
-            ),
+            JsonValue::String("Fast, trustworthy, reproducible cytometry analysis".to_string()),
         ),
         (
             "desktop_host",
@@ -2816,8 +2883,7 @@ fn sample_json(
                                 "decades",
                                 match transform {
                                     ChannelTransform::Biexponential {
-                                        positive_decades,
-                                        ..
+                                        positive_decades, ..
                                     }
                                     | ChannelTransform::Logicle {
                                         decades: positive_decades,
@@ -2830,8 +2896,7 @@ fn sample_json(
                                 "negative_decades",
                                 match transform {
                                     ChannelTransform::Biexponential {
-                                        negative_decades,
-                                        ..
+                                        negative_decades, ..
                                     } => JsonValue::Number(negative_decades),
                                     _ => JsonValue::Null,
                                 },
@@ -3023,10 +3088,7 @@ fn population_comparison_row_json(row: PopulationComparisonRow) -> JsonValue {
                 None => JsonValue::Null,
             },
         ),
-        (
-            "is_active_sample",
-            JsonValue::Bool(row.is_active_sample),
-        ),
+        ("is_active_sample", JsonValue::Bool(row.is_active_sample)),
         ("status", JsonValue::String(row.status)),
         ("matched_events", optional_usize_json(row.matched_events)),
         ("parent_events", optional_usize_json(row.parent_events)),
@@ -3400,7 +3462,8 @@ fn population_group_summaries(
     }
 
     summaries.sort_by(|left, right| {
-        right.is_active_group
+        right
+            .is_active_group
             .cmp(&left.is_active_group)
             .then_with(|| left.group_label.cmp(&right.group_label))
     });
@@ -3636,14 +3699,12 @@ fn analysis_actions_json(log: &AnalysisActionLog) -> JsonValue {
 
 fn transform_json(transform: &ChannelTransform) -> JsonValue {
     match transform {
-        ChannelTransform::Linear => JsonValue::object([(
-            "kind",
-            JsonValue::String("linear".to_string()),
-        )]),
-        ChannelTransform::SignedLog10 => JsonValue::object([(
-            "kind",
-            JsonValue::String("signed_log10".to_string()),
-        )]),
+        ChannelTransform::Linear => {
+            JsonValue::object([("kind", JsonValue::String("linear".to_string()))])
+        }
+        ChannelTransform::SignedLog10 => {
+            JsonValue::object([("kind", JsonValue::String("signed_log10".to_string()))])
+        }
         ChannelTransform::Asinh { cofactor } => JsonValue::object([
             ("kind", JsonValue::String("asinh".to_string())),
             ("cofactor", JsonValue::Number(*cofactor)),
@@ -3784,10 +3845,14 @@ fn populations_json(sample: &SampleFrame, state: &WorkspaceState) -> JsonValue {
     JsonValue::Array(values)
 }
 
-fn population_stats_json(sample: &SampleFrame, state: &WorkspaceState) -> Result<JsonValue, String> {
+fn population_stats_json(
+    sample: &SampleFrame,
+    state: &WorkspaceState,
+) -> Result<JsonValue, String> {
     let stats = compute_population_stats_table(sample, state).map_err(|error| error.to_string())?;
     Ok(JsonValue::Object(
-        stats.into_iter()
+        stats
+            .into_iter()
             .map(|stats| {
                 let key = stats_key(&stats.population_id);
                 (key, population_stats_entry_json(stats))
@@ -3798,14 +3863,8 @@ fn population_stats_json(sample: &SampleFrame, state: &WorkspaceState) -> Result
 
 fn population_stats_entry_json(stats: PopulationStats) -> JsonValue {
     JsonValue::object([
-        (
-            "key",
-            JsonValue::String(stats_key(&stats.population_id)),
-        ),
-        (
-            "population_id",
-            JsonValue::String(stats.population_id),
-        ),
+        ("key", JsonValue::String(stats_key(&stats.population_id))),
+        ("population_id", JsonValue::String(stats.population_id)),
         (
             "parent_population",
             match stats.parent_population {
@@ -3832,7 +3891,8 @@ fn population_stats_entry_json(stats: PopulationStats) -> JsonValue {
         (
             "channel_stats",
             JsonValue::Array(
-                stats.channel_stats
+                stats
+                    .channel_stats
                     .into_iter()
                     .map(|channel| {
                         JsonValue::object([
@@ -4086,13 +4146,9 @@ fn auto_plot_range(sample: &SampleFrame, plot: &PlotSpec) -> Result<PlotRangeSta
                 summary: "Auto extents".to_string(),
             })
         }
-        PlotKind::Histogram => histogram_range_for_mask(
-            sample,
-            plot,
-            None,
-            0.08,
-            "Auto extents".to_string(),
-        ),
+        PlotKind::Histogram => {
+            histogram_range_for_mask(sample, plot, None, 0.08, "Auto extents".to_string())
+        }
     }
 }
 
@@ -4201,13 +4257,9 @@ fn focus_plot_range(
                 summary,
             })
         }
-        PlotKind::Histogram => histogram_range_for_mask(
-            sample,
-            plot,
-            focus_mask,
-            padding_fraction,
-            summary,
-        ),
+        PlotKind::Histogram => {
+            histogram_range_for_mask(sample, plot, focus_mask, padding_fraction, summary)
+        }
     }
 }
 
@@ -4282,29 +4334,22 @@ fn preferred_scatter_pair(sample: &SampleFrame) -> Option<(&str, &str)> {
     })
 }
 
-fn secondary_pair(
-    sample: &SampleFrame,
-    plots: &[PlotSpec],
-) -> Option<(String, String)> {
-    let primary_channels = plots
-        .first()
-        .and_then(|plot| {
-            plot.y_channel
-                .as_deref()
-                .map(|y_channel| (plot.x_channel.as_str(), y_channel))
-        });
+fn secondary_pair(sample: &SampleFrame, plots: &[PlotSpec]) -> Option<(String, String)> {
+    let primary_channels = plots.first().and_then(|plot| {
+        plot.y_channel
+            .as_deref()
+            .map(|y_channel| (plot.x_channel.as_str(), y_channel))
+    });
 
     let fluorescence_channels = sample
         .channels()
         .iter()
         .filter(|channel| !is_time_channel(channel) && !is_structural_channel(channel))
-        .filter(|channel| {
-            match primary_channels {
-                Some((x_channel, y_channel)) => {
-                    channel.as_str() != x_channel && channel.as_str() != y_channel
-                }
-                None => true,
+        .filter(|channel| match primary_channels {
+            Some((x_channel, y_channel)) => {
+                channel.as_str() != x_channel && channel.as_str() != y_channel
             }
+            None => true,
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -4319,13 +4364,11 @@ fn secondary_pair(
         .channels()
         .iter()
         .filter(|channel| !is_time_channel(channel))
-        .filter(|channel| {
-            match primary_channels {
-                Some((x_channel, y_channel)) => {
-                    channel.as_str() != x_channel && channel.as_str() != y_channel
-                }
-                None => true,
+        .filter(|channel| match primary_channels {
+            Some((x_channel, y_channel)) => {
+                channel.as_str() != x_channel && channel.as_str() != y_channel
             }
+            None => true,
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -4561,19 +4604,18 @@ fn axis_bounds(sample: &SampleFrame, index: usize) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::{
+        DesktopSession, bootstrap_json_string,
         flowjoish_desktop_session_apply_active_template_to_other_samples,
-        flowjoish_desktop_session_export_batch_stats_csv,
+        flowjoish_desktop_session_dispatch_json, flowjoish_desktop_session_export_batch_stats_csv,
         flowjoish_desktop_session_export_population_comparison_csv,
         flowjoish_desktop_session_export_population_derived_metric_csv,
         flowjoish_desktop_session_export_population_group_summary_csv,
-        flowjoish_desktop_session_set_derived_metric_json,
-        flowjoish_desktop_session_set_sample_group_label,
-        DesktopSession, bootstrap_json_string, flowjoish_desktop_session_dispatch_json,
-        flowjoish_desktop_session_export_stats_csv,
-        flowjoish_desktop_session_free, flowjoish_desktop_session_load_workspace,
-        flowjoish_desktop_session_new, flowjoish_desktop_session_redo,
-        flowjoish_desktop_session_save_workspace, flowjoish_desktop_session_select_sample,
-        flowjoish_desktop_session_undo, flowjoish_string_free,
+        flowjoish_desktop_session_export_stats_csv, flowjoish_desktop_session_free,
+        flowjoish_desktop_session_load_workspace, flowjoish_desktop_session_new,
+        flowjoish_desktop_session_redo, flowjoish_desktop_session_save_workspace,
+        flowjoish_desktop_session_select_sample, flowjoish_desktop_session_set_derived_metric_json,
+        flowjoish_desktop_session_set_sample_group_label, flowjoish_desktop_session_undo,
+        flowjoish_string_free,
     };
     use std::ffi::{CStr, CString};
     use std::fs;
@@ -4625,8 +4667,14 @@ mod tests {
             snapshot.get("command_count").and_then(JsonValue::as_u64),
             Some(1)
         );
-        assert_eq!(snapshot.get("can_undo").and_then(JsonValue::as_bool), Some(true));
-        assert_eq!(snapshot.get("can_redo").and_then(JsonValue::as_bool), Some(false));
+        assert_eq!(
+            snapshot.get("can_undo").and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            snapshot.get("can_redo").and_then(JsonValue::as_bool),
+            Some(false)
+        );
     }
 
     #[test]
@@ -4651,14 +4699,32 @@ mod tests {
 
         session.dispatch_json(&command);
         let undone = session.undo();
-        assert_eq!(undone.get("command_count").and_then(JsonValue::as_u64), Some(0));
-        assert_eq!(undone.get("can_undo").and_then(JsonValue::as_bool), Some(false));
-        assert_eq!(undone.get("can_redo").and_then(JsonValue::as_bool), Some(true));
+        assert_eq!(
+            undone.get("command_count").and_then(JsonValue::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            undone.get("can_undo").and_then(JsonValue::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            undone.get("can_redo").and_then(JsonValue::as_bool),
+            Some(true)
+        );
 
         let redone = session.redo();
-        assert_eq!(redone.get("command_count").and_then(JsonValue::as_u64), Some(1));
-        assert_eq!(redone.get("can_undo").and_then(JsonValue::as_bool), Some(true));
-        assert_eq!(redone.get("can_redo").and_then(JsonValue::as_bool), Some(false));
+        assert_eq!(
+            redone.get("command_count").and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            redone.get("can_undo").and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            redone.get("can_redo").and_then(JsonValue::as_bool),
+            Some(false)
+        );
     }
 
     #[test]
@@ -4748,9 +4814,15 @@ mod tests {
         unsafe { flowjoish_desktop_session_free(session) };
 
         let undone = JsonValue::parse(&undo_text).expect("undo json");
-        assert_eq!(undone.get("command_count").and_then(JsonValue::as_u64), Some(0));
+        assert_eq!(
+            undone.get("command_count").and_then(JsonValue::as_u64),
+            Some(0)
+        );
         let redone = JsonValue::parse(&redo_text).expect("redo json");
-        assert_eq!(redone.get("command_count").and_then(JsonValue::as_u64), Some(1));
+        assert_eq!(
+            redone.get("command_count").and_then(JsonValue::as_u64),
+            Some(1)
+        );
     }
 
     #[test]
@@ -4767,7 +4839,10 @@ mod tests {
             "beta",
             build_test_fcs(
                 vec!["TIME", "FSC", "SSC", "FL1", "FL2"],
-                vec![vec![1.0, 10.0, 11.0, 100.0, 150.0], vec![2.0, 20.0, 21.0, 200.0, 250.0]],
+                vec![
+                    vec![1.0, 10.0, 11.0, 100.0, 150.0],
+                    vec![2.0, 20.0, 21.0, 200.0, 250.0],
+                ],
                 None,
             ),
         );
@@ -4779,14 +4854,32 @@ mod tests {
         ])
         .stringify_canonical();
         let imported = session.import_fcs_json(&import_payload);
-        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
-        assert_eq!(imported.get("sample").and_then(|sample| sample.get("id")).and_then(JsonValue::as_str), Some("alpha"));
-        assert_eq!(imported.get("samples").and_then(JsonValue::as_array).map(|samples| samples.len()), Some(2));
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(
+            imported
+                .get("sample")
+                .and_then(|sample| sample.get("id"))
+                .and_then(JsonValue::as_str),
+            Some("alpha")
+        );
+        assert_eq!(
+            imported
+                .get("samples")
+                .and_then(JsonValue::as_array)
+                .map(|samples| samples.len()),
+            Some(2)
+        );
 
         let command = JsonValue::object([
             ("kind", JsonValue::String("rectangle_gate".to_string())),
             ("sample_id", JsonValue::String("alpha".to_string())),
-            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
             ("parent_population", JsonValue::Null),
             ("x_channel", JsonValue::String("FSC-A".to_string())),
             ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -4797,11 +4890,25 @@ mod tests {
         ])
         .stringify_canonical();
         let gated = session.dispatch_json(&command);
-        assert_eq!(gated.get("command_count").and_then(JsonValue::as_u64), Some(1));
+        assert_eq!(
+            gated.get("command_count").and_then(JsonValue::as_u64),
+            Some(1)
+        );
 
         let beta_snapshot = session.select_sample("beta");
-        assert_eq!(beta_snapshot.get("sample").and_then(|sample| sample.get("id")).and_then(JsonValue::as_str), Some("beta"));
-        assert_eq!(beta_snapshot.get("command_count").and_then(JsonValue::as_u64), Some(0));
+        assert_eq!(
+            beta_snapshot
+                .get("sample")
+                .and_then(|sample| sample.get("id"))
+                .and_then(JsonValue::as_str),
+            Some("beta")
+        );
+        assert_eq!(
+            beta_snapshot
+                .get("command_count")
+                .and_then(JsonValue::as_u64),
+            Some(0)
+        );
         let beta_plots = beta_snapshot
             .get("plots")
             .and_then(JsonValue::as_array)
@@ -4837,7 +4944,12 @@ mod tests {
         );
 
         let alpha_snapshot = session.select_sample("alpha");
-        assert_eq!(alpha_snapshot.get("command_count").and_then(JsonValue::as_u64), Some(1));
+        assert_eq!(
+            alpha_snapshot
+                .get("command_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
 
         let _ = fs::remove_file(alpha_path);
         let _ = fs::remove_file(beta_path);
@@ -4874,7 +4986,8 @@ mod tests {
         )
         .expect("import payload");
 
-        let import_result = super::flowjoish_desktop_session_import_fcs_json(session, import_payload.as_ptr());
+        let import_result =
+            super::flowjoish_desktop_session_import_fcs_json(session, import_payload.as_ptr());
         unsafe { flowjoish_string_free(import_result) };
 
         let sample_id = CString::new("ffi-beta").expect("sample id");
@@ -4917,7 +5030,10 @@ mod tests {
         )])
         .stringify_canonical();
         let imported = session.import_fcs_json(&import_payload);
-        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
 
         let compensation_payload = JsonValue::object([
             (
@@ -4958,10 +5074,7 @@ mod tests {
             ("channel", JsonValue::String("FL1".to_string())),
             (
                 "transform",
-                JsonValue::object([(
-                    "kind",
-                    JsonValue::String("signed_log10".to_string()),
-                )]),
+                JsonValue::object([("kind", JsonValue::String("signed_log10".to_string()))]),
             ),
         ])
         .stringify_canonical();
@@ -5010,7 +5123,10 @@ mod tests {
         )])
         .stringify_canonical();
         let imported = session.import_fcs_json(&import_payload);
-        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
         let auto_x_max = imported
             .get("plots")
             .and_then(JsonValue::as_array)
@@ -5023,7 +5139,10 @@ mod tests {
         let gate = JsonValue::object([
             ("kind", JsonValue::String("rectangle_gate".to_string())),
             ("sample_id", JsonValue::String("view-sample".to_string())),
-            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
             ("parent_population", JsonValue::Null),
             ("x_channel", JsonValue::String("FSC-A".to_string())),
             ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -5033,17 +5152,34 @@ mod tests {
             ("y_max", JsonValue::Number(40.0)),
         ])
         .stringify_canonical();
-        let _ = session.dispatch_json(&gate);
+        let gated = session.dispatch_json(&gate);
+        let comparison_hash_after_gate = gated
+            .get("comparison_state_hash")
+            .and_then(JsonValue::as_str)
+            .expect("comparison hash after gate")
+            .to_string();
 
         let focus_payload = JsonValue::object([
-            ("kind", JsonValue::String("focus_plot_population".to_string())),
+            (
+                "kind",
+                JsonValue::String("focus_plot_population".to_string()),
+            ),
             ("sample_id", JsonValue::String("view-sample".to_string())),
             ("plot_id", JsonValue::String("plot_fsc_a_ssc_a".to_string())),
-            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
             ("padding_fraction", JsonValue::Number(0.08)),
         ])
         .stringify_canonical();
         let focused = session.dispatch_json(&focus_payload);
+        assert_eq!(
+            focused
+                .get("comparison_state_hash")
+                .and_then(JsonValue::as_str),
+            Some(comparison_hash_after_gate.as_str())
+        );
         assert_eq!(
             focused
                 .get("plots")
@@ -5064,7 +5200,10 @@ mod tests {
         assert!(focused_x_max < auto_x_max);
 
         let after_undo = session.undo();
-        assert_eq!(after_undo.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            after_undo.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
         assert_eq!(
             after_undo
                 .get("plots")
@@ -5110,7 +5249,10 @@ mod tests {
             "save-beta",
             build_test_fcs(
                 vec!["FSC", "SSC", "FL1", "FL2"],
-                vec![vec![11.0, 12.0, 100.0, 150.0], vec![21.0, 22.0, 200.0, 250.0]],
+                vec![
+                    vec![11.0, 12.0, 100.0, 150.0],
+                    vec![21.0, 22.0, 200.0, 250.0],
+                ],
                 Some(("$SPILLOVER", "2,FL1,FL2,1,0.2,0,1")),
             ),
         );
@@ -5123,12 +5265,18 @@ mod tests {
         ])
         .stringify_canonical();
         let imported = session.import_fcs_json(&import_payload);
-        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
 
         let alpha_gate = JsonValue::object([
             ("kind", JsonValue::String("rectangle_gate".to_string())),
             ("sample_id", JsonValue::String("save-alpha".to_string())),
-            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
             ("parent_population", JsonValue::Null),
             ("x_channel", JsonValue::String("FSC-A".to_string())),
             ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -5174,10 +5322,7 @@ mod tests {
             ("channel", JsonValue::String("FL1".to_string())),
             (
                 "transform",
-                JsonValue::object([(
-                    "kind",
-                    JsonValue::String("signed_log10".to_string()),
-                )]),
+                JsonValue::object([("kind", JsonValue::String("signed_log10".to_string()))]),
             ),
         ])
         .stringify_canonical();
@@ -5194,14 +5339,8 @@ mod tests {
         let _ = session.set_sample_group_label("save-beta", "Treated");
         let derived_metric_payload = JsonValue::object([
             ("kind", JsonValue::String("mean_ratio".to_string())),
-            (
-                "numerator_channel",
-                JsonValue::String("FL2".to_string()),
-            ),
-            (
-                "denominator_channel",
-                JsonValue::String("FL1".to_string()),
-            ),
+            ("numerator_channel", JsonValue::String("FL2".to_string())),
+            ("denominator_channel", JsonValue::String("FL1".to_string())),
         ])
         .stringify_canonical();
         let derived_metric = session.set_derived_metric_from_json(&derived_metric_payload);
@@ -5225,11 +5364,17 @@ mod tests {
         );
 
         let saved = session.save_workspace(workspace_path.to_string_lossy().as_ref());
-        assert_eq!(saved.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            saved.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
 
         let mut reopened = DesktopSession::new().expect("session");
         let loaded = reopened.load_workspace(workspace_path.to_string_lossy().as_ref());
-        assert_eq!(loaded.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            loaded.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
         assert_eq!(
             loaded
                 .get("sample")
@@ -5281,12 +5426,20 @@ mod tests {
                 .and_then(JsonValue::as_str),
             Some("Zoomed in (0.70x)")
         );
-        assert_eq!(loaded.get("command_count").and_then(JsonValue::as_u64), Some(0));
-        assert_eq!(loaded.get("can_redo").and_then(JsonValue::as_bool), Some(true));
+        assert_eq!(
+            loaded.get("command_count").and_then(JsonValue::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            loaded.get("can_redo").and_then(JsonValue::as_bool),
+            Some(true)
+        );
 
         let alpha_snapshot = reopened.select_sample("save-alpha");
         assert_eq!(
-            alpha_snapshot.get("command_count").and_then(JsonValue::as_u64),
+            alpha_snapshot
+                .get("command_count")
+                .and_then(JsonValue::as_u64),
             Some(1)
         );
         assert_eq!(
@@ -5297,9 +5450,15 @@ mod tests {
             Some("Control")
         );
         let beta_snapshot = reopened.select_sample("save-beta");
-        assert_eq!(beta_snapshot.get("can_redo").and_then(JsonValue::as_bool), Some(true));
+        assert_eq!(
+            beta_snapshot.get("can_redo").and_then(JsonValue::as_bool),
+            Some(true)
+        );
         let redone = reopened.redo();
-        assert_eq!(redone.get("command_count").and_then(JsonValue::as_u64), Some(1));
+        assert_eq!(
+            redone.get("command_count").and_then(JsonValue::as_u64),
+            Some(1)
+        );
 
         let _ = fs::remove_file(alpha_path);
         let _ = fs::remove_file(beta_path);
@@ -5312,14 +5471,12 @@ mod tests {
         let session = flowjoish_desktop_session_new();
         assert!(!session.is_null());
 
-        let save_path = CString::new(workspace_path.to_string_lossy().to_string())
-            .expect("workspace path");
-        let save_payload =
-            flowjoish_desktop_session_save_workspace(session, save_path.as_ptr());
+        let save_path =
+            CString::new(workspace_path.to_string_lossy().to_string()).expect("workspace path");
+        let save_payload = flowjoish_desktop_session_save_workspace(session, save_path.as_ptr());
         unsafe { flowjoish_string_free(save_payload) };
 
-        let load_payload =
-            flowjoish_desktop_session_load_workspace(session, save_path.as_ptr());
+        let load_payload = flowjoish_desktop_session_load_workspace(session, save_path.as_ptr());
         assert!(!load_payload.is_null());
         let text = unsafe { CStr::from_ptr(load_payload) }
             .to_str()
@@ -5331,7 +5488,10 @@ mod tests {
         let _ = fs::remove_file(workspace_path);
 
         let parsed = JsonValue::parse(&text).expect("json payload");
-        assert_eq!(parsed.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            parsed.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
         assert_eq!(
             parsed
                 .get("sample")
@@ -5389,8 +5549,8 @@ mod tests {
         let session = flowjoish_desktop_session_new();
         assert!(!session.is_null());
 
-        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
-            .expect("export path");
+        let export_path_c =
+            CString::new(export_path.to_string_lossy().to_string()).expect("export path");
         let export_payload =
             flowjoish_desktop_session_export_stats_csv(session, export_path_c.as_ptr());
         assert!(!export_payload.is_null());
@@ -5433,12 +5593,18 @@ mod tests {
         ])
         .stringify_canonical();
         let imported = session.import_fcs_json(&import_payload);
-        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
 
         let gate = JsonValue::object([
             ("kind", JsonValue::String("rectangle_gate".to_string())),
             ("sample_id", JsonValue::String("batch-alpha".to_string())),
-            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
             ("parent_population", JsonValue::Null),
             ("x_channel", JsonValue::String("FSC-A".to_string())),
             ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -5451,11 +5617,16 @@ mod tests {
         let _ = session.dispatch_json(&gate);
 
         let applied = session.apply_active_template_to_other_samples();
-        assert_eq!(applied.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            applied.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
 
         let beta_snapshot = session.select_sample("batch-beta");
         assert_eq!(
-            beta_snapshot.get("command_count").and_then(JsonValue::as_u64),
+            beta_snapshot
+                .get("command_count")
+                .and_then(JsonValue::as_u64),
             Some(1)
         );
         assert!(
@@ -5495,12 +5666,18 @@ mod tests {
         ])
         .stringify_canonical();
         let imported = session.import_fcs_json(&import_payload);
-        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
 
         let gate = JsonValue::object([
             ("kind", JsonValue::String("rectangle_gate".to_string())),
             ("sample_id", JsonValue::String("compare-alpha".to_string())),
-            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
             ("parent_population", JsonValue::Null),
             ("x_channel", JsonValue::String("FSC-A".to_string())),
             ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -5522,7 +5699,10 @@ mod tests {
         let _ = session.set_derived_metric_from_json(&derived_metric_payload);
 
         let comparison = session.population_comparison("lymphocytes");
-        assert_eq!(comparison.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            comparison.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
         assert_eq!(
             comparison
                 .get("population_comparison")
@@ -5544,9 +5724,7 @@ mod tests {
             .expect("comparison rows");
         assert_eq!(rows.len(), 2);
         assert_eq!(
-            rows[0]
-                .get("status")
-                .and_then(JsonValue::as_str),
+            rows[0].get("status").and_then(JsonValue::as_str),
             Some("available")
         );
         assert_eq!(
@@ -5562,9 +5740,7 @@ mod tests {
             Some(0.5)
         );
         assert_eq!(
-            rows[1]
-                .get("status")
-                .and_then(JsonValue::as_str),
+            rows[1].get("status").and_then(JsonValue::as_str),
             Some("missing")
         );
         assert_eq!(
@@ -5674,12 +5850,21 @@ mod tests {
         ])
         .stringify_canonical();
         let imported = session.import_fcs_json(&import_payload);
-        assert_eq!(imported.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
 
         let gate = JsonValue::object([
             ("kind", JsonValue::String("rectangle_gate".to_string())),
-            ("sample_id", JsonValue::String("metric-coverage-alpha".to_string())),
-            ("population_id", JsonValue::String("lymphocytes".to_string())),
+            (
+                "sample_id",
+                JsonValue::String("metric-coverage-alpha".to_string()),
+            ),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
             ("parent_population", JsonValue::Null),
             ("x_channel", JsonValue::String("FSC-A".to_string())),
             ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -5703,16 +5888,17 @@ mod tests {
         let _ = session.set_derived_metric_from_json(&derived_metric_payload);
 
         let comparison = session.population_comparison("lymphocytes");
-        assert_eq!(comparison.get("status").and_then(JsonValue::as_str), Some("ready"));
+        assert_eq!(
+            comparison.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
         let rows = comparison
             .get("population_comparison")
             .and_then(|value| value.get("samples"))
             .and_then(JsonValue::as_array)
             .expect("comparison rows");
         assert_eq!(
-            rows[1]
-                .get("status")
-                .and_then(JsonValue::as_str),
+            rows[1].get("status").and_then(JsonValue::as_str),
             Some("available")
         );
         assert_eq!(
@@ -5798,8 +5984,8 @@ mod tests {
             super::flowjoish_desktop_session_import_fcs_json(session, import_payload.as_ptr());
         unsafe { flowjoish_string_free(import_result) };
 
-        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
-            .expect("export path");
+        let export_path_c =
+            CString::new(export_path.to_string_lossy().to_string()).expect("export path");
         let export_payload =
             flowjoish_desktop_session_export_batch_stats_csv(session, export_path_c.as_ptr());
         assert!(!export_payload.is_null());
@@ -5812,7 +5998,10 @@ mod tests {
                     "sample_id",
                     JsonValue::String("batch-export-alpha".to_string()),
                 ),
-                ("population_id", JsonValue::String("lymphocytes".to_string())),
+                (
+                    "population_id",
+                    JsonValue::String("lymphocytes".to_string()),
+                ),
                 ("parent_population", JsonValue::Null),
                 ("x_channel", JsonValue::String("FSC-A".to_string())),
                 ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -5824,11 +6013,11 @@ mod tests {
             .stringify_canonical(),
         )
         .expect("gate command");
-        let gate_payload =
-            flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
+        let gate_payload = flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
         unsafe { flowjoish_string_free(gate_payload) };
 
-        let apply_payload = flowjoish_desktop_session_apply_active_template_to_other_samples(session);
+        let apply_payload =
+            flowjoish_desktop_session_apply_active_template_to_other_samples(session);
         assert!(!apply_payload.is_null());
         unsafe { flowjoish_string_free(apply_payload) };
         unsafe { flowjoish_desktop_session_free(session) };
@@ -5884,7 +6073,10 @@ mod tests {
                     "sample_id",
                     JsonValue::String("comparison-export-alpha".to_string()),
                 ),
-                ("population_id", JsonValue::String("lymphocytes".to_string())),
+                (
+                    "population_id",
+                    JsonValue::String("lymphocytes".to_string()),
+                ),
                 ("parent_population", JsonValue::Null),
                 ("x_channel", JsonValue::String("FSC-A".to_string())),
                 ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -5896,8 +6088,7 @@ mod tests {
             .stringify_canonical(),
         )
         .expect("gate command");
-        let gate_payload =
-            flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
+        let gate_payload = flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
         unsafe { flowjoish_string_free(gate_payload) };
         let alpha_id = CString::new("comparison-export-alpha").expect("alpha sample id");
         let control_group = CString::new("Control").expect("control group");
@@ -5917,8 +6108,8 @@ mod tests {
         unsafe { flowjoish_string_free(beta_group_payload) };
 
         let population_key = CString::new("lymphocytes").expect("population key");
-        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
-            .expect("export path");
+        let export_path_c =
+            CString::new(export_path.to_string_lossy().to_string()).expect("export path");
         let export_payload = flowjoish_desktop_session_export_population_comparison_csv(
             session,
             population_key.as_ptr(),
@@ -5928,8 +6119,7 @@ mod tests {
         unsafe { flowjoish_string_free(export_payload) };
         unsafe { flowjoish_desktop_session_free(session) };
 
-        let exported =
-            fs::read_to_string(&export_path).expect("read population comparison export");
+        let exported = fs::read_to_string(&export_path).expect("read population comparison export");
         assert!(exported.starts_with(
             "population_key,population_id,active_sample_id,active_group_label,sample_id,display_name,group_label,source_path,status,is_active_sample,matched_events,parent_events,frequency_of_all,frequency_of_parent,delta_frequency_of_all,delta_frequency_of_parent\n"
         ));
@@ -5995,8 +6185,14 @@ mod tests {
         let gate_command = CString::new(
             JsonValue::object([
                 ("kind", JsonValue::String("rectangle_gate".to_string())),
-                ("sample_id", JsonValue::String("group-summary-alpha".to_string())),
-                ("population_id", JsonValue::String("lymphocytes".to_string())),
+                (
+                    "sample_id",
+                    JsonValue::String("group-summary-alpha".to_string()),
+                ),
+                (
+                    "population_id",
+                    JsonValue::String("lymphocytes".to_string()),
+                ),
                 ("parent_population", JsonValue::Null),
                 ("x_channel", JsonValue::String("FSC-A".to_string())),
                 ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -6008,16 +6204,15 @@ mod tests {
             .stringify_canonical(),
         )
         .expect("gate command");
-        let gate_payload =
-            flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
+        let gate_payload = flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
         unsafe { flowjoish_string_free(gate_payload) };
         let apply_payload =
             flowjoish_desktop_session_apply_active_template_to_other_samples(session);
         unsafe { flowjoish_string_free(apply_payload) };
 
         let population_key = CString::new("lymphocytes").expect("population key");
-        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
-            .expect("export path");
+        let export_path_c =
+            CString::new(export_path.to_string_lossy().to_string()).expect("export path");
         let export_payload = flowjoish_desktop_session_export_population_group_summary_csv(
             session,
             population_key.as_ptr(),
@@ -6027,8 +6222,7 @@ mod tests {
         unsafe { flowjoish_string_free(export_payload) };
         unsafe { flowjoish_desktop_session_free(session) };
 
-        let exported =
-            fs::read_to_string(&export_path).expect("read cohort summary export");
+        let exported = fs::read_to_string(&export_path).expect("read cohort summary export");
         assert!(exported.starts_with(
             "population_key,population_id,active_sample_id,active_group_label,group_label,is_active_group,sample_count,available_sample_count,missing_sample_count,derived_metric_available_sample_count,derived_metric_unavailable_sample_count,total_matched_events,total_parent_events,mean_frequency_of_all,mean_frequency_of_parent,delta_mean_frequency_of_all,delta_mean_frequency_of_parent,mean_derived_metric_value,delta_mean_derived_metric_value\n"
         ));
@@ -6081,7 +6275,10 @@ mod tests {
                     "sample_id",
                     JsonValue::String("derived-metric-alpha".to_string()),
                 ),
-                ("population_id", JsonValue::String("lymphocytes".to_string())),
+                (
+                    "population_id",
+                    JsonValue::String("lymphocytes".to_string()),
+                ),
                 ("parent_population", JsonValue::Null),
                 ("x_channel", JsonValue::String("FSC-A".to_string())),
                 ("y_channel", JsonValue::String("SSC-A".to_string())),
@@ -6093,8 +6290,7 @@ mod tests {
             .stringify_canonical(),
         )
         .expect("gate command");
-        let gate_payload =
-            flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
+        let gate_payload = flowjoish_desktop_session_dispatch_json(session, gate_command.as_ptr());
         unsafe { flowjoish_string_free(gate_payload) };
         let apply_payload =
             flowjoish_desktop_session_apply_active_template_to_other_samples(session);
@@ -6115,8 +6311,8 @@ mod tests {
         unsafe { flowjoish_string_free(metric_result) };
 
         let population_key = CString::new("lymphocytes").expect("population key");
-        let export_path_c = CString::new(export_path.to_string_lossy().to_string())
-            .expect("export path");
+        let export_path_c =
+            CString::new(export_path.to_string_lossy().to_string()).expect("export path");
         let export_payload = flowjoish_desktop_session_export_population_derived_metric_csv(
             session,
             population_key.as_ptr(),
@@ -6126,8 +6322,7 @@ mod tests {
         unsafe { flowjoish_string_free(export_payload) };
         unsafe { flowjoish_desktop_session_free(session) };
 
-        let exported =
-            fs::read_to_string(&export_path).expect("read derived metric export");
+        let exported = fs::read_to_string(&export_path).expect("read derived metric export");
         assert!(exported.starts_with(
             "population_key,population_id,active_sample_id,metric_kind,metric_label,sample_id,display_name,group_label,status,is_active_sample,value,delta_value,message\n"
         ));
