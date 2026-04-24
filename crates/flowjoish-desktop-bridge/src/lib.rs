@@ -1717,11 +1717,14 @@ impl DesktopSession {
 
         for sample_id in &self.sample_order {
             hasher.update_str(sample_id);
-            let sample = &self.sample_artifact_for(sample_id)?.raw_sample;
+            let artifact = self.sample_artifact_for(sample_id)?;
+            let sample = &artifact.raw_sample;
             let info = self
                 .sample_info
                 .get(sample_id)
                 .ok_or_else(|| format!("missing sample info '{}'", sample_id))?;
+            hasher.update_u64(sample.fingerprint());
+            hasher.update_u64(compensation_matrix_hash(artifact.compensation.as_ref()));
             hasher.update_u64(sample.event_count() as u64);
             hasher.update_u64(sample.channels().len() as u64);
             for channel in sample.channels() {
@@ -4023,17 +4026,15 @@ fn scatter_plot_json(
         .channel_index(y_channel)
         .ok_or_else(|| format!("missing channel '{}'", y_channel))?;
 
-    let all_points = points_json(sample, x_index, y_index, None);
-    let mut population_points = BTreeMap::new();
-    population_points.insert("__all__".to_string(), JsonValue::Array(all_points.clone()));
+    let sampled_indices = sampled_event_indices(sample.event_count(), SCATTER_POINT_LIMIT);
+    let all_points = points_json(sample, x_index, y_index, &sampled_indices);
+    let mut population_event_indices = BTreeMap::new();
     for population in state.populations.values() {
-        population_points.insert(
+        population_event_indices.insert(
             population.population_id.clone(),
-            JsonValue::Array(points_json(
-                sample,
-                x_index,
-                y_index,
-                Some(&population.mask),
+            JsonValue::Array(sampled_population_indices_json(
+                &sampled_indices,
+                &population.mask,
             )),
         );
     }
@@ -4045,8 +4046,24 @@ fn scatter_plot_json(
         ("x_channel", JsonValue::String(plot.x_channel.clone())),
         ("y_channel", JsonValue::String(y_channel.to_string())),
         ("view_summary", JsonValue::String(range.summary.clone())),
+        (
+            "total_event_count",
+            JsonValue::Number(sample.event_count() as f64),
+        ),
+        (
+            "rendered_event_count",
+            JsonValue::Number(all_points.len() as f64),
+        ),
+        ("point_limit", JsonValue::Number(SCATTER_POINT_LIMIT as f64)),
+        (
+            "decimated",
+            JsonValue::Bool(sample.event_count() > sampled_indices.len()),
+        ),
         ("all_points", JsonValue::Array(all_points)),
-        ("population_points", JsonValue::Object(population_points)),
+        (
+            "population_event_indices",
+            JsonValue::Object(population_event_indices),
+        ),
         (
             "x_range",
             JsonValue::object([
@@ -4493,26 +4510,70 @@ fn sample_display_name(path: &str) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
+fn compensation_matrix_hash(compensation: Option<&CompensationMatrix>) -> u64 {
+    let mut hasher = StableHasher::new();
+    hasher.update_bool(compensation.is_some());
+    if let Some(matrix) = compensation {
+        hasher.update_str(&matrix.source_key);
+        hasher.update_u64(matrix.dimension as u64);
+        hasher.update_u64(matrix.parameter_names.len() as u64);
+        for parameter_name in &matrix.parameter_names {
+            hasher.update_str(parameter_name);
+        }
+        hasher.update_u64(matrix.values.len() as u64);
+        for value in &matrix.values {
+            hasher.update(&value.to_le_bytes());
+        }
+    }
+    hasher.finish_u64()
+}
+
+const SCATTER_POINT_LIMIT: usize = 20_000;
+
 fn points_json(
     sample: &SampleFrame,
     x_index: usize,
     y_index: usize,
-    mask: Option<&BitMask>,
+    event_indices: &[usize],
 ) -> Vec<JsonValue> {
-    sample
-        .events()
+    event_indices
         .iter()
-        .enumerate()
-        .filter_map(|(event_index, row)| {
-            if mask.is_some_and(|mask| !mask.contains(event_index)) {
-                return None;
-            }
-
+        .filter_map(|event_index| {
+            let row = sample.events().get(*event_index)?;
             Some(JsonValue::object([
+                ("event_index", JsonValue::Number(*event_index as f64)),
                 ("x", JsonValue::Number(row[x_index])),
                 ("y", JsonValue::Number(row[y_index])),
             ]))
         })
+        .collect()
+}
+
+fn sampled_event_indices(event_count: usize, limit: usize) -> Vec<usize> {
+    if event_count == 0 {
+        return Vec::new();
+    }
+    if limit == 0 {
+        return Vec::new();
+    }
+    if event_count <= limit {
+        return (0..event_count).collect();
+    }
+    if limit == 1 {
+        return vec![0];
+    }
+
+    (0..limit)
+        .map(|rank| rank * (event_count - 1) / (limit - 1))
+        .collect()
+}
+
+fn sampled_population_indices_json(sampled_indices: &[usize], mask: &BitMask) -> Vec<JsonValue> {
+    sampled_indices
+        .iter()
+        .copied()
+        .filter(|event_index| mask.contains(*event_index))
+        .map(|event_index| JsonValue::Number(event_index as f64))
         .collect()
 }
 
@@ -4604,7 +4665,7 @@ fn axis_bounds(sample: &SampleFrame, index: usize) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::{
-        DesktopSession, bootstrap_json_string,
+        DesktopSession, SCATTER_POINT_LIMIT, bootstrap_json_string,
         flowjoish_desktop_session_apply_active_template_to_other_samples,
         flowjoish_desktop_session_dispatch_json, flowjoish_desktop_session_export_batch_stats_csv,
         flowjoish_desktop_session_export_population_comparison_csv,
@@ -5231,6 +5292,145 @@ mod tests {
                 .and_then(JsonValue::as_str),
             Some("Zoomed out (1.40x)")
         );
+
+        let _ = fs::remove_file(sample_path);
+    }
+
+    #[test]
+    fn comparison_state_hash_tracks_raw_data_and_compensation() {
+        let sample_path = write_temp_test_fcs(
+            "identity-sample",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "FL1", "FL2"],
+                vec![vec![10.0, 10.0, 100.0, 150.0]],
+                None,
+            ),
+        );
+        let import_payload = JsonValue::Array(vec![JsonValue::String(
+            sample_path.to_string_lossy().to_string(),
+        )])
+        .stringify_canonical();
+
+        let mut first_session = DesktopSession::new().expect("session");
+        let first = first_session.import_fcs_json(&import_payload);
+        let first_hash = first
+            .get("comparison_state_hash")
+            .and_then(JsonValue::as_str)
+            .expect("first comparison hash")
+            .to_string();
+
+        fs::write(
+            &sample_path,
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "FL1", "FL2"],
+                vec![vec![20.0, 10.0, 100.0, 150.0]],
+                None,
+            ),
+        )
+        .expect("rewrite sample data");
+        let mut data_changed_session = DesktopSession::new().expect("session");
+        let data_changed = data_changed_session.import_fcs_json(&import_payload);
+        let data_changed_hash = data_changed
+            .get("comparison_state_hash")
+            .and_then(JsonValue::as_str)
+            .expect("data-changed comparison hash");
+        assert_ne!(first_hash, data_changed_hash);
+
+        fs::write(
+            &sample_path,
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "FL1", "FL2"],
+                vec![vec![10.0, 10.0, 100.0, 150.0]],
+                Some(("$SPILLOVER", "2,FL1,FL2,1,0.2,0,1")),
+            ),
+        )
+        .expect("rewrite compensation metadata");
+        let mut compensation_changed_session = DesktopSession::new().expect("session");
+        let compensation_changed = compensation_changed_session.import_fcs_json(&import_payload);
+        let compensation_changed_hash = compensation_changed
+            .get("comparison_state_hash")
+            .and_then(JsonValue::as_str)
+            .expect("compensation-changed comparison hash");
+        assert_ne!(first_hash, compensation_changed_hash);
+
+        let _ = fs::remove_file(sample_path);
+    }
+
+    #[test]
+    fn scatter_snapshots_are_bounded_and_use_population_index_sets() {
+        let rows = (0..(SCATTER_POINT_LIMIT + 10))
+            .map(|index| vec![index as f64, (index % 100) as f64])
+            .collect::<Vec<_>>();
+        let sample_path = write_temp_test_fcs(
+            "bounded-scatter",
+            build_test_fcs(vec!["FSC-A", "SSC-A"], rows, None),
+        );
+        let import_payload = JsonValue::Array(vec![JsonValue::String(
+            sample_path.to_string_lossy().to_string(),
+        )])
+        .stringify_canonical();
+
+        let mut session = DesktopSession::new().expect("session");
+        let imported = session.import_fcs_json(&import_payload);
+        let plot = imported
+            .get("plots")
+            .and_then(JsonValue::as_array)
+            .and_then(|plots| plots.first())
+            .expect("scatter plot");
+        assert_eq!(
+            plot.get("total_event_count").and_then(JsonValue::as_u64),
+            Some((SCATTER_POINT_LIMIT + 10) as u64)
+        );
+        assert!(
+            plot.get("rendered_event_count")
+                .and_then(JsonValue::as_u64)
+                .is_some_and(|count| count == SCATTER_POINT_LIMIT as u64)
+        );
+        assert_eq!(
+            plot.get("decimated").and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            plot.get("all_points")
+                .and_then(JsonValue::as_array)
+                .and_then(|points| points.first())
+                .and_then(|point| point.get("event_index"))
+                .and_then(JsonValue::as_u64),
+            Some(0)
+        );
+
+        let gate = JsonValue::object([
+            ("kind", JsonValue::String("rectangle_gate".to_string())),
+            (
+                "sample_id",
+                JsonValue::String("bounded-scatter".to_string()),
+            ),
+            (
+                "population_id",
+                JsonValue::String("early-events".to_string()),
+            ),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(200.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(100.0)),
+        ])
+        .stringify_canonical();
+        let gated = session.dispatch_json(&gate);
+        let gated_plot = gated
+            .get("plots")
+            .and_then(JsonValue::as_array)
+            .and_then(|plots| plots.first())
+            .expect("gated scatter plot");
+        assert!(gated_plot.get("population_points").is_none());
+        let sampled_population_indices = gated_plot
+            .get("population_event_indices")
+            .and_then(|value| value.get("early-events"))
+            .and_then(JsonValue::as_array)
+            .expect("sampled population indices");
+        assert!(!sampled_population_indices.is_empty());
 
         let _ = fs::remove_file(sample_path);
     }

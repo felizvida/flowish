@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QSet>
 #include <QtGlobal>
 #include <QStringList>
 #include <cmath>
@@ -918,11 +919,25 @@ void DesktopController::rebuildDerivedState() {
             plot.insert("highlight_count", highlightCount);
         } else {
             const QVariantMap populationPoints = plot.value("population_points").toMap();
+            const QVariantMap populationEventIndices =
+                plot.value("population_event_indices").toMap();
             QVariantList highlightPoints;
             if (selectedPopulationKey_ == "__all__") {
                 highlightPoints = plot.value("all_points").toList();
-            } else {
+            } else if (populationPoints.contains(selectedPopulationKey_)) {
                 highlightPoints = populationPoints.value(selectedPopulationKey_).toList();
+            } else {
+                QSet<int> selectedEventIndices;
+                for (const QVariant &indexValue :
+                     populationEventIndices.value(selectedPopulationKey_).toList()) {
+                    selectedEventIndices.insert(indexValue.toInt());
+                }
+                for (const QVariant &pointValue : plot.value("all_points").toList()) {
+                    const QVariantMap point = pointValue.toMap();
+                    if (selectedEventIndices.contains(point.value("event_index").toInt())) {
+                        highlightPoints.push_back(pointValue);
+                    }
+                }
             }
             plot.insert("highlight_points", highlightPoints);
             plot.insert("highlight_count", highlightPoints.size());
