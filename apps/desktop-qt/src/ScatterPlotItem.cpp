@@ -33,6 +33,14 @@ QVariantList ScatterPlotItem::highlightPoints() const {
     return highlightPoints_;
 }
 
+QVariantMap ScatterPlotItem::pointColumns() const {
+    return pointColumns_;
+}
+
+QVariantMap ScatterPlotItem::highlightPointColumns() const {
+    return highlightPointColumns_;
+}
+
 double ScatterPlotItem::xMin() const {
     return xMin_;
 }
@@ -73,6 +81,28 @@ void ScatterPlotItem::setHighlightPoints(const QVariantList &points) {
     highlightPointBuffer_ = toPointVector(points);
     update();
     emit highlightPointsChanged();
+}
+
+void ScatterPlotItem::setPointColumns(const QVariantMap &columns) {
+    if (columns == pointColumns_) {
+        return;
+    }
+
+    pointColumns_ = columns;
+    allPointBuffer_ = toPointVector(columns);
+    update();
+    emit pointColumnsChanged();
+}
+
+void ScatterPlotItem::setHighlightPointColumns(const QVariantMap &columns) {
+    if (columns == highlightPointColumns_) {
+        return;
+    }
+
+    highlightPointColumns_ = columns;
+    highlightPointBuffer_ = toPointVector(columns);
+    update();
+    emit highlightPointColumnsChanged();
 }
 
 void ScatterPlotItem::setXMin(double value) {
@@ -271,6 +301,19 @@ QVector<QPointF> ScatterPlotItem::toPointVector(const QVariantList &values) {
     for (const QVariant &value : values) {
         const QVariantMap map = value.toMap();
         points.push_back(QPointF(map.value("x").toDouble(), map.value("y").toDouble()));
+    }
+    return points;
+}
+
+QVector<QPointF> ScatterPlotItem::toPointVector(const QVariantMap &columns) {
+    const QVariantList xValues = columns.value("x_values").toList();
+    const QVariantList yValues = columns.value("y_values").toList();
+    const int count = qMin(xValues.size(), yValues.size());
+
+    QVector<QPointF> points;
+    points.reserve(count);
+    for (int index = 0; index < count; ++index) {
+        points.push_back(QPointF(xValues.at(index).toDouble(), yValues.at(index).toDouble()));
     }
     return points;
 }

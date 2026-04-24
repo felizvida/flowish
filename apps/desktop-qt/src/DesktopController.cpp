@@ -7,8 +7,10 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QSet>
+#include <QTimer>
 #include <QtGlobal>
 #include <QStringList>
+#include <algorithm>
 #include <cmath>
 
 extern "C" {
@@ -59,6 +61,63 @@ QString takeRustString(char *raw) {
     const QString text = QString::fromUtf8(raw);
     flowjoish_string_free(raw);
     return text;
+}
+
+int pointColumnCount(const QVariantMap &columns) {
+    return columns.value(QStringLiteral("event_indices")).toList().size();
+}
+
+QVariantMap pointColumnsFromPointMaps(const QVariantList &points) {
+    QVariantList eventIndices;
+    QVariantList xValues;
+    QVariantList yValues;
+    eventIndices.reserve(points.size());
+    xValues.reserve(points.size());
+    yValues.reserve(points.size());
+
+    for (const QVariant &pointValue : points) {
+        const QVariantMap point = pointValue.toMap();
+        eventIndices.push_back(point.value(QStringLiteral("event_index")));
+        xValues.push_back(point.value(QStringLiteral("x")));
+        yValues.push_back(point.value(QStringLiteral("y")));
+    }
+
+    return QVariantMap{
+        {QStringLiteral("event_indices"), eventIndices},
+        {QStringLiteral("x_values"), xValues},
+        {QStringLiteral("y_values"), yValues},
+    };
+}
+
+QVariantMap filterPointColumns(
+    const QVariantMap &columns,
+    const QSet<int> &selectedEventIndices) {
+    const QVariantList eventIndices = columns.value(QStringLiteral("event_indices")).toList();
+    const QVariantList xValues = columns.value(QStringLiteral("x_values")).toList();
+    const QVariantList yValues = columns.value(QStringLiteral("y_values")).toList();
+    const int count = std::min({eventIndices.size(), xValues.size(), yValues.size()});
+
+    QVariantList filteredEventIndices;
+    QVariantList filteredXValues;
+    QVariantList filteredYValues;
+    filteredEventIndices.reserve(count);
+    filteredXValues.reserve(count);
+    filteredYValues.reserve(count);
+
+    for (int index = 0; index < count; ++index) {
+        if (!selectedEventIndices.contains(eventIndices.at(index).toInt())) {
+            continue;
+        }
+        filteredEventIndices.push_back(eventIndices.at(index));
+        filteredXValues.push_back(xValues.at(index));
+        filteredYValues.push_back(yValues.at(index));
+    }
+
+    return QVariantMap{
+        {QStringLiteral("event_indices"), filteredEventIndices},
+        {QStringLiteral("x_values"), filteredXValues},
+        {QStringLiteral("y_values"), filteredYValues},
+    };
 }
 
 }  // namespace
@@ -921,47 +980,94 @@ void DesktopController::rebuildDerivedState() {
             const QVariantMap populationPoints = plot.value("population_points").toMap();
             const QVariantMap populationEventIndices =
                 plot.value("population_event_indices").toMap();
+            QVariantMap pointColumns = plot.value("point_columns").toMap();
+            if (pointColumns.isEmpty()) {
+                pointColumns = pointColumnsFromPointMaps(plot.value("all_points").toList());
+            }
+            QVariantMap highlightPointColumns;
             QVariantList highlightPoints;
             if (selectedPopulationKey_ == "__all__") {
                 highlightPoints = plot.value("all_points").toList();
+                highlightPointColumns = pointColumns;
             } else if (populationPoints.contains(selectedPopulationKey_)) {
                 highlightPoints = populationPoints.value(selectedPopulationKey_).toList();
+                highlightPointColumns = pointColumnsFromPointMaps(highlightPoints);
             } else {
                 QSet<int> selectedEventIndices;
                 for (const QVariant &indexValue :
                      populationEventIndices.value(selectedPopulationKey_).toList()) {
                     selectedEventIndices.insert(indexValue.toInt());
                 }
-                for (const QVariant &pointValue : plot.value("all_points").toList()) {
-                    const QVariantMap point = pointValue.toMap();
-                    if (selectedEventIndices.contains(point.value("event_index").toInt())) {
-                        highlightPoints.push_back(pointValue);
+                if (!pointColumns.isEmpty()) {
+                    highlightPointColumns = filterPointColumns(pointColumns, selectedEventIndices);
+                }
+                if (highlightPointColumns.isEmpty()) {
+                    for (const QVariant &pointValue : plot.value("all_points").toList()) {
+                        const QVariantMap point = pointValue.toMap();
+                        if (selectedEventIndices.contains(point.value("event_index").toInt())) {
+                            highlightPoints.push_back(pointValue);
+                        }
                     }
+                    highlightPointColumns = pointColumnsFromPointMaps(highlightPoints);
                 }
             }
+            plot.insert("point_columns", pointColumns);
+            plot.insert("highlight_point_columns", highlightPointColumns);
             plot.insert("highlight_points", highlightPoints);
-            plot.insert("highlight_count", highlightPoints.size());
+            plot.insert("highlight_count", pointColumnCount(highlightPointColumns));
         }
         plots_.push_back(plot);
     }
 
-    refreshSelectedPopulationComparison();
+    updateSelectedPopulationComparison();
 }
 
-void DesktopController::refreshSelectedPopulationComparison() {
-    const QString cacheKey =
-        buildDesktopComparisonCacheKey(snapshot_, selectedPopulationKey_, status_);
-    if (cacheKey.isEmpty()) {
+void DesktopController::updateSelectedPopulationComparison() {
+    const DesktopComparisonRefreshDecision decision =
+        evaluateDesktopComparisonRefresh(
+            snapshot_,
+            selectedPopulationKey_,
+            status_,
+            selectedPopulationComparisonCacheKey_,
+            pendingPopulationComparisonCacheKey_);
+
+    if (decision.shouldClearComparison) {
         selectedPopulationComparison_.clear();
         selectedPopulationComparisonCacheKey_.clear();
-        return;
+        pendingPopulationComparisonCacheKey_.clear();
     }
-    if (cacheKey == selectedPopulationComparisonCacheKey_) {
+
+    if (decision.shouldRequestRefresh) {
+        queueSelectedPopulationComparisonRefresh(decision.cacheKey);
+    }
+}
+
+void DesktopController::queueSelectedPopulationComparisonRefresh(const QString &cacheKey) {
+    if (cacheKey.isEmpty()) {
         return;
     }
 
-    selectedPopulationComparison_.clear();
-    selectedPopulationComparisonCacheKey_.clear();
+    pendingPopulationComparisonCacheKey_ = cacheKey;
+    if (populationComparisonRefreshQueued_) {
+        return;
+    }
+
+    populationComparisonRefreshQueued_ = true;
+    QTimer::singleShot(0, this, [this]() {
+        populationComparisonRefreshQueued_ = false;
+        const QString cacheKey = pendingPopulationComparisonCacheKey_;
+        if (!cacheKey.isEmpty()) {
+            refreshSelectedPopulationComparison(cacheKey);
+        }
+    });
+}
+
+void DesktopController::refreshSelectedPopulationComparison(const QString &cacheKey) {
+    if (cacheKey.isEmpty()
+        || cacheKey != pendingPopulationComparisonCacheKey_
+        || cacheKey != buildDesktopComparisonCacheKey(snapshot_, selectedPopulationKey_, status_)) {
+        return;
+    }
 
     if (session_ == nullptr || status_ != "ready") {
         return;
@@ -995,8 +1101,15 @@ void DesktopController::refreshSelectedPopulationComparison() {
         return;
     }
 
+    if (cacheKey != pendingPopulationComparisonCacheKey_
+        || cacheKey != buildDesktopComparisonCacheKey(snapshot_, selectedPopulationKey_, status_)) {
+        return;
+    }
+
     selectedPopulationComparison_ = parsed.value("population_comparison").toMap();
     selectedPopulationComparisonCacheKey_ = cacheKey;
+    pendingPopulationComparisonCacheKey_.clear();
+    emit snapshotChanged();
 }
 
 void DesktopController::setLastError(const QString &message) {

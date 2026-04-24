@@ -132,5 +132,70 @@ int main() {
         }
     }
 
+    {
+        QVariantMap snapshot{
+            {"status", "ready"},
+            {"sample", QVariantMap{{"id", "sample-a"}}},
+            {"comparison_state_hash", "comparison-1"},
+        };
+        const QString existingKey = buildDesktopComparisonCacheKey(
+            snapshot,
+            "lymphocytes",
+            "ready");
+
+        DesktopComparisonRefreshDecision unchanged =
+            evaluateDesktopComparisonRefresh(
+                snapshot,
+                "lymphocytes",
+                "ready",
+                existingKey,
+                QString());
+        if (expect(!unchanged.shouldRequestRefresh, "matching cache key should not refresh")) {
+            return 1;
+        }
+        if (expect(!unchanged.shouldClearComparison, "matching cache key should not clear")) {
+            return 1;
+        }
+
+        DesktopComparisonRefreshDecision pending =
+            evaluateDesktopComparisonRefresh(
+                snapshot,
+                "lymphocytes",
+                "ready",
+                QString(),
+                existingKey);
+        if (expect(!pending.shouldRequestRefresh, "pending cache key should not refresh twice")) {
+            return 1;
+        }
+
+        DesktopComparisonRefreshDecision changed =
+            evaluateDesktopComparisonRefresh(
+                snapshot,
+                "cd3_cd4",
+                "ready",
+                existingKey,
+                QString());
+        if (expect(changed.shouldRequestRefresh, "changed population should request refresh")) {
+            return 1;
+        }
+        if (expect(changed.shouldClearComparison, "changed population should clear stale data")) {
+            return 1;
+        }
+
+        DesktopComparisonRefreshDecision unavailable =
+            evaluateDesktopComparisonRefresh(
+                snapshot,
+                "lymphocytes",
+                "error",
+                existingKey,
+                QString());
+        if (expect(!unavailable.shouldRequestRefresh, "error status should not refresh")) {
+            return 1;
+        }
+        if (expect(unavailable.shouldClearComparison, "error status should clear cached comparison")) {
+            return 1;
+        }
+    }
+
     return 0;
 }

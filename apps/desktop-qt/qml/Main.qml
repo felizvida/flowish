@@ -1300,8 +1300,8 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.margins: 10
                                 visible: (plotA.kind || "scatter") !== "histogram"
-                                allPoints: plotA.all_points || []
-                                highlightPoints: plotA.highlight_points || []
+                                pointColumns: plotA.point_columns || ({})
+                                highlightPointColumns: plotA.highlight_point_columns || ({})
                                 xMin: plotA.x_range ? plotA.x_range.min : 0
                                 xMax: plotA.x_range ? plotA.x_range.max : 1
                                 yMin: plotA.y_range ? plotA.y_range.min : 0
@@ -1427,8 +1427,8 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.margins: 10
                                 visible: (plotB.kind || "scatter") !== "histogram"
-                                allPoints: plotB.all_points || []
-                                highlightPoints: plotB.highlight_points || []
+                                pointColumns: plotB.point_columns || ({})
+                                highlightPointColumns: plotB.highlight_point_columns || ({})
                                 xMin: plotB.x_range ? plotB.x_range.min : 0
                                 xMax: plotB.x_range ? plotB.x_range.max : 1
                                 yMin: plotB.y_range ? plotB.y_range.min : 0
@@ -1555,8 +1555,8 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.margins: 10
                                 visible: (plotC.kind || "scatter") !== "histogram"
-                                allPoints: plotC.all_points || []
-                                highlightPoints: plotC.highlight_points || []
+                                pointColumns: plotC.point_columns || ({})
+                                highlightPointColumns: plotC.highlight_point_columns || ({})
                                 xMin: plotC.x_range ? plotC.x_range.min : 0
                                 xMax: plotC.x_range ? plotC.x_range.max : 1
                                 yMin: plotC.y_range ? plotC.y_range.min : 0

@@ -51,3 +51,27 @@ QString buildDesktopComparisonCacheKey(
 
     return QStringList{sampleId, normalizedPopulation, comparisonStateHash}.join("|");
 }
+
+DesktopComparisonRefreshDecision evaluateDesktopComparisonRefresh(
+    const QVariantMap &snapshot,
+    const QString &populationKey,
+    const QString &status,
+    const QString &currentCacheKey,
+    const QString &pendingCacheKey) {
+    DesktopComparisonRefreshDecision decision;
+    decision.cacheKey = buildDesktopComparisonCacheKey(snapshot, populationKey, status);
+
+    if (decision.cacheKey.isEmpty()) {
+        decision.shouldClearComparison =
+            !currentCacheKey.isEmpty() || !pendingCacheKey.isEmpty();
+        return decision;
+    }
+
+    if (decision.cacheKey == currentCacheKey || decision.cacheKey == pendingCacheKey) {
+        return decision;
+    }
+
+    decision.shouldClearComparison = !currentCacheKey.isEmpty();
+    decision.shouldRequestRefresh = true;
+    return decision;
+}

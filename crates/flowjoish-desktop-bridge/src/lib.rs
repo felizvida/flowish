@@ -4027,7 +4027,7 @@ fn scatter_plot_json(
         .ok_or_else(|| format!("missing channel '{}'", y_channel))?;
 
     let sampled_indices = sampled_event_indices(sample.event_count(), SCATTER_POINT_LIMIT);
-    let all_points = points_json(sample, x_index, y_index, &sampled_indices);
+    let point_columns = point_columns_json(sample, x_index, y_index, &sampled_indices);
     let mut population_event_indices = BTreeMap::new();
     for population in state.populations.values() {
         population_event_indices.insert(
@@ -4052,14 +4052,14 @@ fn scatter_plot_json(
         ),
         (
             "rendered_event_count",
-            JsonValue::Number(all_points.len() as f64),
+            JsonValue::Number(sampled_indices.len() as f64),
         ),
         ("point_limit", JsonValue::Number(SCATTER_POINT_LIMIT as f64)),
         (
             "decimated",
             JsonValue::Bool(sample.event_count() > sampled_indices.len()),
         ),
-        ("all_points", JsonValue::Array(all_points)),
+        ("point_columns", point_columns),
         (
             "population_event_indices",
             JsonValue::Object(population_event_indices),
@@ -4530,23 +4530,30 @@ fn compensation_matrix_hash(compensation: Option<&CompensationMatrix>) -> u64 {
 
 const SCATTER_POINT_LIMIT: usize = 20_000;
 
-fn points_json(
+fn point_columns_json(
     sample: &SampleFrame,
     x_index: usize,
     y_index: usize,
     event_indices: &[usize],
-) -> Vec<JsonValue> {
-    event_indices
-        .iter()
-        .filter_map(|event_index| {
-            let row = sample.events().get(*event_index)?;
-            Some(JsonValue::object([
-                ("event_index", JsonValue::Number(*event_index as f64)),
-                ("x", JsonValue::Number(row[x_index])),
-                ("y", JsonValue::Number(row[y_index])),
-            ]))
-        })
-        .collect()
+) -> JsonValue {
+    let mut rendered_event_indices = Vec::with_capacity(event_indices.len());
+    let mut x_values = Vec::with_capacity(event_indices.len());
+    let mut y_values = Vec::with_capacity(event_indices.len());
+
+    for event_index in event_indices {
+        let Some(row) = sample.events().get(*event_index) else {
+            continue;
+        };
+        rendered_event_indices.push(JsonValue::Number(*event_index as f64));
+        x_values.push(JsonValue::Number(row[x_index]));
+        y_values.push(JsonValue::Number(row[y_index]));
+    }
+
+    JsonValue::object([
+        ("event_indices", JsonValue::Array(rendered_event_indices)),
+        ("x_values", JsonValue::Array(x_values)),
+        ("y_values", JsonValue::Array(y_values)),
+    ])
 }
 
 fn sampled_event_indices(event_count: usize, limit: usize) -> Vec<usize> {
@@ -5391,10 +5398,10 @@ mod tests {
             Some(true)
         );
         assert_eq!(
-            plot.get("all_points")
+            plot.get("point_columns")
+                .and_then(|columns| columns.get("event_indices"))
                 .and_then(JsonValue::as_array)
-                .and_then(|points| points.first())
-                .and_then(|point| point.get("event_index"))
+                .and_then(|indices| indices.first())
                 .and_then(JsonValue::as_u64),
             Some(0)
         );
@@ -5424,6 +5431,7 @@ mod tests {
             .and_then(JsonValue::as_array)
             .and_then(|plots| plots.first())
             .expect("gated scatter plot");
+        assert!(gated_plot.get("all_points").is_none());
         assert!(gated_plot.get("population_points").is_none());
         let sampled_population_indices = gated_plot
             .get("population_event_indices")

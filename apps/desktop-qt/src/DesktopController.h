@@ -110,7 +110,9 @@ signals:
 private:
     bool applyRustPayload(const QString &payload, bool replaceSnapshotOnError = false);
     void rebuildDerivedState();
-    void refreshSelectedPopulationComparison();
+    void updateSelectedPopulationComparison();
+    void queueSelectedPopulationComparisonRefresh(const QString &cacheKey);
+    void refreshSelectedPopulationComparison(const QString &cacheKey);
     void setLastError(const QString &message);
     void setWorkspacePath(const QString &path);
     bool setDerivedMetric(const QJsonObject &metric);
@@ -135,6 +137,8 @@ private:
     QVariantMap selectedPopulationStats_;
     QVariantMap selectedPopulationComparison_;
     QString selectedPopulationComparisonCacheKey_;
+    QString pendingPopulationComparisonCacheKey_;
+    bool populationComparisonRefreshQueued_ = false;
     QString status_ = "booting";
     int commandCount_ = 0;
     bool canUndo_ = false;
