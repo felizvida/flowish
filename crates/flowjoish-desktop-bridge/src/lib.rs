@@ -48,6 +48,14 @@ struct PopulationComparisonRow {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+struct PopulationComparisonSnapshot {
+    population_key: String,
+    population_id: String,
+    active_group_label: String,
+    rows: Vec<PopulationComparisonRow>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 struct PopulationGroupSummaryRow {
     group_label: String,
     is_active_group: bool,
@@ -771,6 +779,7 @@ pub struct DesktopSession {
     analysis_logs: BTreeMap<String, AnalysisActionLog>,
     view_logs: BTreeMap<String, ViewActionLog>,
     redo_stacks: BTreeMap<String, Vec<Command>>,
+    comparison_cache: BTreeMap<String, PopulationComparisonSnapshot>,
 }
 
 impl DesktopSession {
@@ -825,6 +834,7 @@ impl DesktopSession {
             analysis_logs,
             view_logs,
             redo_stacks,
+            comparison_cache: BTreeMap::new(),
         })
     }
 
@@ -841,8 +851,13 @@ impl DesktopSession {
         for redo_stack in self.redo_stacks.values_mut() {
             redo_stack.clear();
         }
+        self.clear_comparison_cache();
         self.snapshot_value()
             .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn clear_comparison_cache(&mut self) {
+        self.comparison_cache.clear();
     }
 
     fn snapshot_value(&self) -> Result<JsonValue, String> {
@@ -1024,6 +1039,7 @@ impl DesktopSession {
         if let Some(redo_stack) = self.redo_stacks.get_mut(&self.sample_id) {
             redo_stack.clear();
         }
+        self.clear_comparison_cache();
         self.snapshot_value()
             .unwrap_or_else(|message| error_json_value(message))
     }
@@ -1083,6 +1099,7 @@ impl DesktopSession {
         if let Some(log) = self.analysis_logs.get_mut(&self.sample_id) {
             *log = next_log;
         }
+        self.clear_comparison_cache();
         self.snapshot_value()
             .unwrap_or_else(|message| error_json_value(message))
     }
@@ -1142,6 +1159,7 @@ impl DesktopSession {
                 if let Some(redo_stack) = self.redo_stacks.get_mut(&sample_id) {
                     redo_stack.push(record.command);
                 }
+                self.clear_comparison_cache();
                 self.snapshot_value()
                     .unwrap_or_else(|message| error_json_value(message))
             }
@@ -1175,6 +1193,7 @@ impl DesktopSession {
                 if let Some(log) = self.command_logs.get_mut(&sample_id) {
                     *log = next_log;
                 }
+                self.clear_comparison_cache();
                 self.snapshot_value()
                     .unwrap_or_else(|message| error_json_value(message))
             }
@@ -1203,6 +1222,7 @@ impl DesktopSession {
         self.analysis_logs = imported.analysis_logs;
         self.view_logs = imported.view_logs;
         self.redo_stacks = imported.redo_stacks;
+        self.clear_comparison_cache();
 
         self.snapshot_value()
             .unwrap_or_else(|message| error_json_value(message))
@@ -1274,6 +1294,7 @@ impl DesktopSession {
         self.analysis_logs = imported.analysis_logs;
         self.view_logs = imported.view_logs;
         self.redo_stacks = imported.redo_stacks;
+        self.clear_comparison_cache();
 
         self.snapshot_value()
             .unwrap_or_else(|message| error_json_value(message))
@@ -1354,6 +1375,7 @@ impl DesktopSession {
                 *view_log = ViewActionLog::new();
             }
         }
+        self.clear_comparison_cache();
 
         self.snapshot_value()
             .unwrap_or_else(|message| error_json_value(message))
@@ -1389,18 +1411,13 @@ impl DesktopSession {
             .unwrap_or_else(|message| error_json_value(message))
     }
 
-    fn population_comparison(&self, population_key: &str) -> JsonValue {
-        if population_key.trim().is_empty() {
-            return error_json_value("population comparison key cannot be empty");
-        }
-
-        let (population_id, rows) = match self.population_comparison_rows(population_key) {
-            Ok(values) => values,
+    fn population_comparison(&mut self, population_key: &str) -> JsonValue {
+        let snapshot = match self.population_comparison_snapshot(population_key) {
+            Ok(snapshot) => snapshot,
             Err(message) => return error_json_value(message),
         };
-        let active_group_label = self
-            .active_sample_group_label()
-            .unwrap_or_else(default_group_label);
+        let active_group_label = snapshot.active_group_label.clone();
+        let rows = snapshot.rows;
         let group_summaries = population_group_summaries(&rows, &active_group_label);
         let available_sample_count = rows.iter().filter(|row| row.status == "available").count();
         let missing_sample_count = rows.len().saturating_sub(available_sample_count);
@@ -1410,8 +1427,8 @@ impl DesktopSession {
             (
                 "population_comparison",
                 JsonValue::object([
-                    ("key", JsonValue::String(population_key.to_string())),
-                    ("population_id", JsonValue::String(population_id)),
+                    ("key", JsonValue::String(snapshot.population_key)),
+                    ("population_id", JsonValue::String(snapshot.population_id)),
                     (
                         "active_sample_id",
                         JsonValue::String(self.sample_id.clone()),
@@ -1449,30 +1466,24 @@ impl DesktopSession {
     }
 
     fn export_population_comparison_csv(
-        &self,
+        &mut self,
         population_key: &str,
         export_path: &str,
     ) -> JsonValue {
-        if population_key.trim().is_empty() {
-            return error_json_value("population comparison key cannot be empty");
-        }
         if export_path.trim().is_empty() {
             return error_json_value("population comparison export path cannot be empty");
         }
 
-        let (population_id, rows) = match self.population_comparison_rows(population_key) {
-            Ok(values) => values,
+        let snapshot = match self.population_comparison_snapshot(population_key) {
+            Ok(snapshot) => snapshot,
             Err(message) => return error_json_value(message),
         };
-        let active_group_label = self
-            .active_sample_group_label()
-            .unwrap_or_else(default_group_label);
         let csv = population_comparison_csv(
-            population_key,
-            &population_id,
+            &snapshot.population_key,
+            &snapshot.population_id,
             &self.sample_id,
-            &active_group_label,
-            &rows,
+            &snapshot.active_group_label,
+            &snapshot.rows,
         );
         if let Err(error) = fs::write(export_path, csv) {
             return error_json_value(format!(
@@ -1486,30 +1497,25 @@ impl DesktopSession {
     }
 
     fn export_population_group_summary_csv(
-        &self,
+        &mut self,
         population_key: &str,
         export_path: &str,
     ) -> JsonValue {
-        if population_key.trim().is_empty() {
-            return error_json_value("population group summary key cannot be empty");
-        }
         if export_path.trim().is_empty() {
             return error_json_value("population group summary export path cannot be empty");
         }
 
-        let (population_id, rows) = match self.population_comparison_rows(population_key) {
-            Ok(values) => values,
+        let snapshot = match self.population_comparison_snapshot(population_key) {
+            Ok(snapshot) => snapshot,
             Err(message) => return error_json_value(message),
         };
-        let active_group_label = self
-            .active_sample_group_label()
-            .unwrap_or_else(default_group_label);
-        let group_summaries = population_group_summaries(&rows, &active_group_label);
+        let group_summaries =
+            population_group_summaries(&snapshot.rows, &snapshot.active_group_label);
         let csv = population_group_summary_csv(
-            population_key,
-            &population_id,
+            &snapshot.population_key,
+            &snapshot.population_id,
             &self.sample_id,
-            &active_group_label,
+            &snapshot.active_group_label,
             &group_summaries,
         );
         if let Err(error) = fs::write(export_path, csv) {
@@ -1542,32 +1548,30 @@ impl DesktopSession {
         }
 
         self.derived_metric = metric;
+        self.clear_comparison_cache();
         self.snapshot_value()
             .unwrap_or_else(|message| error_json_value(message))
     }
 
     fn export_population_derived_metric_csv(
-        &self,
+        &mut self,
         population_key: &str,
         export_path: &str,
     ) -> JsonValue {
-        if population_key.trim().is_empty() {
-            return error_json_value("population derived metric key cannot be empty");
-        }
         if export_path.trim().is_empty() {
             return error_json_value("population derived metric export path cannot be empty");
         }
 
-        let (population_id, rows) = match self.population_comparison_rows(population_key) {
-            Ok(values) => values,
+        let snapshot = match self.population_comparison_snapshot(population_key) {
+            Ok(snapshot) => snapshot,
             Err(message) => return error_json_value(message),
         };
         let csv = population_derived_metric_csv(
-            population_key,
-            &population_id,
+            &snapshot.population_key,
+            &snapshot.population_id,
             &self.sample_id,
             &self.derived_metric,
-            &rows,
+            &snapshot.rows,
         );
         if let Err(error) = fs::write(export_path, csv) {
             return error_json_value(format!(
@@ -1586,6 +1590,7 @@ impl DesktopSession {
             None => return error_json_value(format!("unknown sample '{sample_id}'")),
         };
         info.group_label = normalize_group_label(group_label);
+        self.clear_comparison_cache();
         self.snapshot_value()
             .unwrap_or_else(|message| error_json_value(message))
     }
@@ -1738,6 +1743,49 @@ impl DesktopSession {
         }
 
         Ok(hasher.finish_u64())
+    }
+
+    fn population_comparison_cache_key(&self, population_key: &str) -> Result<String, String> {
+        let population_key = population_key.trim();
+        if population_key.is_empty() {
+            return Err("population comparison key cannot be empty".to_string());
+        }
+
+        Ok(format!(
+            "{}|{}|{:016x}",
+            self.sample_id,
+            population_key,
+            self.comparison_state_hash()?
+        ))
+    }
+
+    fn population_comparison_snapshot(
+        &mut self,
+        population_key: &str,
+    ) -> Result<PopulationComparisonSnapshot, String> {
+        let population_key = population_key.trim();
+        let cache_key = self.population_comparison_cache_key(population_key)?;
+        if let Some(snapshot) = self.comparison_cache.get(&cache_key) {
+            return Ok(snapshot.clone());
+        }
+
+        let (population_id, rows) = self.population_comparison_rows(population_key)?;
+        let active_group_label = self
+            .active_sample_group_label()
+            .unwrap_or_else(default_group_label);
+        let snapshot = PopulationComparisonSnapshot {
+            population_key: population_key.to_string(),
+            population_id,
+            active_group_label,
+            rows,
+        };
+
+        if self.comparison_cache.len() >= COMPARISON_CACHE_LIMIT {
+            self.comparison_cache.clear();
+        }
+        self.comparison_cache.insert(cache_key, snapshot.clone());
+
+        Ok(snapshot)
     }
 
     fn population_comparison_rows(
@@ -4529,6 +4577,7 @@ fn compensation_matrix_hash(compensation: Option<&CompensationMatrix>) -> u64 {
 }
 
 const SCATTER_POINT_LIMIT: usize = 20_000;
+const COMPARISON_CACHE_LIMIT: usize = 32;
 
 fn point_columns_json(
     sample: &SampleFrame,
@@ -6030,6 +6079,81 @@ mod tests {
 
         let _ = fs::remove_file(alpha_path);
         let _ = fs::remove_file(beta_path);
+    }
+
+    #[test]
+    fn population_comparison_cache_survives_view_actions_and_invalidates_scientific_changes() {
+        let mut session = DesktopSession::new().expect("session");
+        assert_eq!(session.comparison_cache.len(), 0);
+
+        let first = session.population_comparison("__all__");
+        assert_eq!(
+            first.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(session.comparison_cache.len(), 1);
+
+        let second = session.population_comparison("__all__");
+        assert_eq!(first, second);
+        assert_eq!(session.comparison_cache.len(), 1);
+
+        let plot_id = session
+            .snapshot_value()
+            .expect("snapshot")
+            .get("plots")
+            .and_then(JsonValue::as_array)
+            .and_then(|plots| plots.first())
+            .and_then(|plot| plot.get("id"))
+            .and_then(JsonValue::as_str)
+            .expect("plot id")
+            .to_string();
+        let view_payload = JsonValue::object([
+            ("kind", JsonValue::String("scale_plot_view".to_string())),
+            ("sample_id", JsonValue::String("desktop-demo".to_string())),
+            ("plot_id", JsonValue::String(plot_id)),
+            ("factor", JsonValue::Number(1.2)),
+        ])
+        .stringify_canonical();
+        let zoomed = session.dispatch_json(&view_payload);
+        assert_eq!(
+            zoomed.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(session.comparison_cache.len(), 1);
+
+        let after_view = session.population_comparison("__all__");
+        assert_eq!(first, after_view);
+        assert_eq!(session.comparison_cache.len(), 1);
+
+        let gate = JsonValue::object([
+            ("kind", JsonValue::String("rectangle_gate".to_string())),
+            ("sample_id", JsonValue::String("desktop-demo".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(60.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(60.0)),
+        ])
+        .stringify_canonical();
+        let gated = session.dispatch_json(&gate);
+        assert_eq!(
+            gated.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(session.comparison_cache.len(), 0);
+
+        let after_gate = session.population_comparison("__all__");
+        assert_eq!(
+            after_gate.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(session.comparison_cache.len(), 1);
     }
 
     #[test]
