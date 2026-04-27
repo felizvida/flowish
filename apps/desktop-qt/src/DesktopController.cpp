@@ -1069,7 +1069,14 @@ void DesktopController::refreshSelectedPopulationComparison(const QString &cache
         return;
     }
 
+    const auto clearPendingIfCurrent = [this, &cacheKey]() {
+        if (pendingPopulationComparisonCacheKey_ == cacheKey) {
+            pendingPopulationComparisonCacheKey_.clear();
+        }
+    };
+
     if (session_ == nullptr || status_ != "ready") {
+        clearPendingIfCurrent();
         return;
     }
 
@@ -1081,6 +1088,7 @@ void DesktopController::refreshSelectedPopulationComparison(const QString &cache
             session_,
             populationKeyUtf8.constData()));
     if (payload.isEmpty()) {
+        clearPendingIfCurrent();
         setLastError("Rust bridge returned an empty population comparison payload");
         return;
     }
@@ -1089,6 +1097,7 @@ void DesktopController::refreshSelectedPopulationComparison(const QString &cache
     const QJsonDocument document =
         QJsonDocument::fromJson(payload.toUtf8(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        clearPendingIfCurrent();
         setLastError(
             QStringLiteral("Failed to parse population comparison payload: %1")
                 .arg(parseError.errorString()));
@@ -1097,6 +1106,7 @@ void DesktopController::refreshSelectedPopulationComparison(const QString &cache
 
     const QVariantMap parsed = document.object().toVariantMap();
     if (parsed.value("status").toString() != "ready") {
+        clearPendingIfCurrent();
         setLastError(parsed.value("message").toString());
         return;
     }

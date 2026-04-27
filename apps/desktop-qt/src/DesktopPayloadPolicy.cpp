@@ -71,7 +71,9 @@ DesktopComparisonRefreshDecision evaluateDesktopComparisonRefresh(
         return decision;
     }
 
-    decision.shouldClearComparison = !currentCacheKey.isEmpty();
+    decision.shouldClearComparison =
+        !currentCacheKey.isEmpty()
+        || (!pendingCacheKey.isEmpty() && pendingCacheKey != decision.cacheKey);
     decision.shouldRequestRefresh = true;
     return decision;
 }

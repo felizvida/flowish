@@ -168,6 +168,24 @@ int main() {
             return 1;
         }
 
+        const QString stalePendingKey = buildDesktopComparisonCacheKey(
+            snapshot,
+            "cd3_cd4",
+            "ready");
+        DesktopComparisonRefreshDecision replacesPending =
+            evaluateDesktopComparisonRefresh(
+                snapshot,
+                "lymphocytes",
+                "ready",
+                QString(),
+                stalePendingKey);
+        if (expect(replacesPending.shouldRequestRefresh, "stale pending key should be replaced")) {
+            return 1;
+        }
+        if (expect(replacesPending.shouldClearComparison, "stale pending key should be cleared")) {
+            return 1;
+        }
+
         DesktopComparisonRefreshDecision changed =
             evaluateDesktopComparisonRefresh(
                 snapshot,
