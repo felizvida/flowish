@@ -886,6 +886,64 @@ bool DesktopController::createPolygonGateForPlot(
     return commitInteractiveCommand(command, populationId);
 }
 
+bool DesktopController::createQuadrantGatesForPlot(const QString &plotId) {
+    const QVariantMap plot = plotDefinition(plotId);
+    if (plot.isEmpty()) {
+        setLastError(QStringLiteral("Unknown plot '%1'").arg(plotId));
+        return false;
+    }
+    if (plot.value("kind").toString() == QStringLiteral("histogram")) {
+        setLastError("Quadrant gates require a two-parameter scatter plot");
+        return false;
+    }
+
+    const QString xChannel = plot.value("x_channel").toString();
+    const QString yChannel = plot.value("y_channel").toString();
+    if (xChannel.trimmed().isEmpty() || yChannel.trimmed().isEmpty()) {
+        setLastError("Quadrant gates require named x and y channels");
+        return false;
+    }
+
+    const QVariantMap xRange = plot.value("x_range").toMap();
+    const QVariantMap yRange = plot.value("y_range").toMap();
+    const double xMin = qMin(xRange.value("min").toDouble(), xRange.value("max").toDouble());
+    const double xMax = qMax(xRange.value("min").toDouble(), xRange.value("max").toDouble());
+    const double yMin = qMin(yRange.value("min").toDouble(), yRange.value("max").toDouble());
+    const double yMax = qMax(yRange.value("min").toDouble(), yRange.value("max").toDouble());
+    const bool allFinite = std::isfinite(xMin) && std::isfinite(xMax) && std::isfinite(yMin)
+        && std::isfinite(yMax);
+    if (!allFinite || qFuzzyIsNull(xMax - xMin) || qFuzzyIsNull(yMax - yMin)) {
+        setLastError("Quadrant gates require a finite, non-degenerate plot view");
+        return false;
+    }
+
+    const QString basePopulationId =
+        nextInteractivePopulationId(plotId) + QStringLiteral("_quadrants");
+    QJsonObject command;
+    command.insert("kind", "quadrant_gate");
+    const QString sampleId = activeSampleId();
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("base_population_id", basePopulationId);
+    if (selectedPopulationKey_ == "__all__") {
+        command.insert("parent_population", QJsonValue());
+    } else {
+        command.insert("parent_population", selectedPopulationKey_);
+    }
+    command.insert("x_channel", xChannel);
+    command.insert("y_channel", yChannel);
+    command.insert("x_min", xMin);
+    command.insert("x_threshold", xMin + ((xMax - xMin) / 2.0));
+    command.insert("x_max", xMax);
+    command.insert("y_min", yMin);
+    command.insert("y_threshold", yMin + ((yMax - yMin) / 2.0));
+    command.insert("y_max", yMax);
+
+    return dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
 bool DesktopController::commitInteractiveCommand(
     const QJsonObject &command,
     const QString &populationId) {

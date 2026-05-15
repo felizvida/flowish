@@ -103,6 +103,7 @@ public:
     Q_INVOKABLE bool createPolygonGateForPlot(
         const QString &plotId,
         const QVariantList &vertices);
+    Q_INVOKABLE bool createQuadrantGatesForPlot(const QString &plotId);
 
 signals:
     void snapshotChanged();

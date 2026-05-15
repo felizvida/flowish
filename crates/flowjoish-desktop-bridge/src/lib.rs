@@ -1032,6 +1032,9 @@ impl DesktopSession {
             Some("reset_plot_view") | Some("focus_plot_population") | Some("scale_plot_view") => {
                 return self.dispatch_view_json(&value);
             }
+            Some("quadrant_gate") => {
+                return self.dispatch_quadrant_json(&value);
+            }
             _ => {}
         }
 
@@ -1070,6 +1073,99 @@ impl DesktopSession {
         self.clear_comparison_cache();
         self.snapshot_value()
             .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn dispatch_quadrant_json(&mut self, value: &JsonValue) -> JsonValue {
+        let commands = match self.quadrant_commands_from_json(value) {
+            Ok(commands) => commands,
+            Err(message) => return error_json_value(message),
+        };
+
+        let mut next_log = match self.active_command_log() {
+            Ok(log) => log.clone(),
+            Err(message) => return error_json_value(message),
+        };
+        for command in commands {
+            next_log.append(command);
+        }
+        let (_, _, _, replay_environment) = match self.active_processed_environment() {
+            Ok(state) => state,
+            Err(message) => return error_json_value(message),
+        };
+        if let Err(error) = next_log.replay(&replay_environment) {
+            return error_json_value(error.to_string());
+        }
+
+        if let Some(log) = self.command_logs.get_mut(&self.sample_id) {
+            *log = next_log;
+        }
+        if let Some(redo_stack) = self.redo_stacks.get_mut(&self.sample_id) {
+            redo_stack.clear();
+        }
+        self.clear_comparison_cache();
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn quadrant_commands_from_json(&self, value: &JsonValue) -> Result<Vec<Command>, String> {
+        let sample_id = required_json_string(value, "sample_id")?.to_string();
+        if sample_id != self.sample_id {
+            return Err(format!(
+                "quadrant gate sample '{}' does not match desktop sample '{}'",
+                sample_id, self.sample_id
+            ));
+        }
+        let base_population_id = required_json_string(value, "base_population_id")?
+            .trim()
+            .to_string();
+        if base_population_id.is_empty() {
+            return Err("quadrant gate base_population_id cannot be empty".to_string());
+        }
+        let parent_population = value
+            .get("parent_population")
+            .and_then(JsonValue::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let x_channel = required_json_string(value, "x_channel")?.to_string();
+        let y_channel = required_json_string(value, "y_channel")?.to_string();
+        let x_min = required_json_number(value, "x_min")?;
+        let x_threshold = required_json_number(value, "x_threshold")?;
+        let x_max = required_json_number(value, "x_max")?;
+        let y_min = required_json_number(value, "y_min")?;
+        let y_threshold = required_json_number(value, "y_threshold")?;
+        let y_max = required_json_number(value, "y_max")?;
+
+        if !(x_min < x_threshold && x_threshold < x_max) {
+            return Err("quadrant x_threshold must be between x_min and x_max".to_string());
+        }
+        if !(y_min < y_threshold && y_threshold < y_max) {
+            return Err("quadrant y_threshold must be between y_min and y_max".to_string());
+        }
+
+        let quadrants = [
+            ("x_low_y_low", x_min, x_threshold, y_min, y_threshold),
+            ("x_high_y_low", x_threshold, x_max, y_min, y_threshold),
+            ("x_high_y_high", x_threshold, x_max, y_threshold, y_max),
+            ("x_low_y_high", x_min, x_threshold, y_threshold, y_max),
+        ];
+
+        Ok(quadrants
+            .into_iter()
+            .map(
+                |(suffix, x_min, x_max, y_min, y_max)| Command::RectangleGate {
+                    sample_id: sample_id.clone(),
+                    population_id: format!("{base_population_id}_{suffix}"),
+                    parent_population: parent_population.clone(),
+                    x_channel: x_channel.clone(),
+                    y_channel: y_channel.clone(),
+                    x_min,
+                    x_max,
+                    y_min,
+                    y_max,
+                },
+            )
+            .collect())
     }
 
     fn dispatch_analysis_json(&mut self, value: &JsonValue) -> JsonValue {
@@ -4669,6 +4765,17 @@ fn required_json_bool(value: &JsonValue, field: &str) -> Result<bool, String> {
         .ok_or_else(|| format!("missing field '{field}'"))
 }
 
+fn required_json_number(value: &JsonValue, field: &str) -> Result<f64, String> {
+    let number = value
+        .get(field)
+        .and_then(JsonValue::as_f64)
+        .ok_or_else(|| format!("missing field '{field}'"))?;
+    if !number.is_finite() {
+        return Err(format!("field '{field}' must be finite"));
+    }
+    Ok(number)
+}
+
 fn parse_hex_u64(value: &str, field: &str) -> Result<u64, String> {
     u64::from_str_radix(value, 16).map_err(|_| format!("invalid field '{field}'"))
 }
@@ -5816,6 +5923,126 @@ mod tests {
         assert_eq!(
             snapshot.get("can_redo").and_then(JsonValue::as_bool),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn session_dispatches_quadrant_gate_as_four_replayable_rectangles() {
+        let sample_path = write_temp_test_fcs(
+            "quadrant-sample",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A"],
+                vec![
+                    vec![10.0, 10.0],
+                    vec![90.0, 10.0],
+                    vec![90.0, 90.0],
+                    vec![10.0, 90.0],
+                ],
+                None,
+            ),
+        );
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![JsonValue::String(
+            sample_path.to_string_lossy().to_string(),
+        )])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+
+        let command = JsonValue::object([
+            ("kind", JsonValue::String("quadrant_gate".to_string())),
+            (
+                "sample_id",
+                JsonValue::String("quadrant-sample".to_string()),
+            ),
+            (
+                "base_population_id",
+                JsonValue::String("annexin_quadrants".to_string()),
+            ),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_threshold", JsonValue::Number(50.0)),
+            ("x_max", JsonValue::Number(100.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_threshold", JsonValue::Number(50.0)),
+            ("y_max", JsonValue::Number(100.0)),
+        ])
+        .stringify_canonical();
+
+        let snapshot = session.dispatch_json(&command);
+        assert_eq!(
+            snapshot.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(
+            snapshot.get("command_count").and_then(JsonValue::as_u64),
+            Some(4)
+        );
+        let stats = snapshot
+            .get("population_stats")
+            .expect("population stats for quadrant gates");
+        for population_key in [
+            "annexin_quadrants_x_low_y_low",
+            "annexin_quadrants_x_high_y_low",
+            "annexin_quadrants_x_high_y_high",
+            "annexin_quadrants_x_low_y_high",
+        ] {
+            assert_eq!(
+                stats
+                    .get(population_key)
+                    .and_then(|value| value.get("matched_events"))
+                    .and_then(JsonValue::as_u64),
+                Some(1),
+                "{population_key} should contain one event"
+            );
+        }
+        assert_eq!(
+            snapshot
+                .get("gate_template_readiness")
+                .and_then(|readiness| readiness.get("command_count"))
+                .and_then(JsonValue::as_u64),
+            Some(4)
+        );
+
+        let _ = fs::remove_file(sample_path);
+    }
+
+    #[test]
+    fn session_rejects_degenerate_quadrant_thresholds_without_partial_commands() {
+        let mut session = DesktopSession::new().expect("session");
+        let command = JsonValue::object([
+            ("kind", JsonValue::String("quadrant_gate".to_string())),
+            ("sample_id", JsonValue::String("desktop-demo".to_string())),
+            (
+                "base_population_id",
+                JsonValue::String("bad_quadrants".to_string()),
+            ),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_threshold", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(100.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_threshold", JsonValue::Number(50.0)),
+            ("y_max", JsonValue::Number(100.0)),
+        ])
+        .stringify_canonical();
+
+        let snapshot = session.dispatch_json(&command);
+        assert_eq!(
+            snapshot.get("status").and_then(JsonValue::as_str),
+            Some("error")
+        );
+        let recovered = session.snapshot_value().expect("snapshot");
+        assert_eq!(
+            recovered.get("command_count").and_then(JsonValue::as_u64),
+            Some(0)
         );
     }
 
