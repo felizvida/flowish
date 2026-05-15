@@ -1302,6 +1302,7 @@ ApplicationWindow {
                                 visible: (plotA.kind || "scatter") !== "histogram"
                                 pointColumns: plotA.point_columns || ({})
                                 highlightPointColumns: plotA.highlight_point_columns || ({})
+                                densityGrid: plotA.density_grid || ({})
                                 gateOverlays: plotA.gate_overlays || []
                                 selectedPopulationKey: desktopController.selectedPopulationKey
                                 xMin: plotA.x_range ? plotA.x_range.min : 0
@@ -1431,6 +1432,7 @@ ApplicationWindow {
                                 visible: (plotB.kind || "scatter") !== "histogram"
                                 pointColumns: plotB.point_columns || ({})
                                 highlightPointColumns: plotB.highlight_point_columns || ({})
+                                densityGrid: plotB.density_grid || ({})
                                 gateOverlays: plotB.gate_overlays || []
                                 selectedPopulationKey: desktopController.selectedPopulationKey
                                 xMin: plotB.x_range ? plotB.x_range.min : 0
@@ -1561,6 +1563,7 @@ ApplicationWindow {
                                 visible: (plotC.kind || "scatter") !== "histogram"
                                 pointColumns: plotC.point_columns || ({})
                                 highlightPointColumns: plotC.highlight_point_columns || ({})
+                                densityGrid: plotC.density_grid || ({})
                                 gateOverlays: plotC.gate_overlays || []
                                 selectedPopulationKey: desktopController.selectedPopulationKey
                                 xMin: plotC.x_range ? plotC.x_range.min : 0

@@ -41,6 +41,10 @@ QVariantMap ScatterPlotItem::highlightPointColumns() const {
     return highlightPointColumns_;
 }
 
+QVariantMap ScatterPlotItem::densityGrid() const {
+    return densityGrid_;
+}
+
 QVariantList ScatterPlotItem::gateOverlays() const {
     return gateOverlays_;
 }
@@ -111,6 +115,17 @@ void ScatterPlotItem::setHighlightPointColumns(const QVariantMap &columns) {
     highlightPointBuffer_ = toPointVector(columns);
     update();
     emit highlightPointColumnsChanged();
+}
+
+void ScatterPlotItem::setDensityGrid(const QVariantMap &densityGrid) {
+    if (densityGrid == densityGrid_) {
+        return;
+    }
+
+    densityGrid_ = densityGrid;
+    densityCellBuffer_ = toDensityCells(densityGrid);
+    update();
+    emit densityGridChanged();
 }
 
 void ScatterPlotItem::setGateOverlays(const QVariantList &overlays) {
@@ -200,7 +215,19 @@ QSGNode *ScatterPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData 
 
     const QRectF bounds = dataRect();
     const QRectF plotArea = plotRect();
-    root->appendChildNode(buildSeriesNode(allPointBuffer_, QColor("#365b63"), 6.0, bounds, plotArea));
+    constexpr int densityBandCount = 5;
+    for (int band = 0; band < densityBandCount; ++band) {
+        if (QSGGeometryNode *densityNode =
+                buildDensityNode(densityCellBuffer_, band, densityBandCount, bounds, plotArea)) {
+            root->appendChildNode(densityNode);
+        }
+    }
+
+    QColor allPointColor("#365b63");
+    if (!densityCellBuffer_.isEmpty()) {
+        allPointColor.setAlphaF(0.64);
+    }
+    root->appendChildNode(buildSeriesNode(allPointBuffer_, allPointColor, 6.0, bounds, plotArea));
     if (!highlightPointBuffer_.isEmpty()) {
         root->appendChildNode(buildSeriesNode(
             highlightPointBuffer_,
@@ -358,6 +385,38 @@ QVector<QPointF> ScatterPlotItem::toPointVector(const QVariantMap &columns) {
     return points;
 }
 
+QVector<ScatterPlotItem::DensityCell> ScatterPlotItem::toDensityCells(const QVariantMap &densityGrid) {
+    const QVariantList cellValues = densityGrid.value("cells").toList();
+    QVector<DensityCell> cells;
+    cells.reserve(cellValues.size());
+    for (const QVariant &cellValue : cellValues) {
+        const QVariantMap cellMap = cellValue.toMap();
+        bool okXMin = false;
+        bool okXMax = false;
+        bool okYMin = false;
+        bool okYMax = false;
+        bool okIntensity = false;
+        const double xMin = cellMap.value("x_min").toDouble(&okXMin);
+        const double xMax = cellMap.value("x_max").toDouble(&okXMax);
+        const double yMin = cellMap.value("y_min").toDouble(&okYMin);
+        const double yMax = cellMap.value("y_max").toDouble(&okYMax);
+        const double intensity = cellMap.value("intensity").toDouble(&okIntensity);
+        if (!okXMin || !okXMax || !okYMin || !okYMax || !okIntensity) {
+            continue;
+        }
+        if (!std::isfinite(xMin) || !std::isfinite(xMax) || !std::isfinite(yMin) || !std::isfinite(yMax)
+            || !std::isfinite(intensity) || xMax <= xMin || yMax <= yMin || intensity <= 0.0) {
+            continue;
+        }
+
+        cells.push_back(DensityCell {
+            QRectF(QPointF(xMin, yMin), QPointF(xMax, yMax)).normalized(),
+            qBound(0.0, intensity, 1.0),
+        });
+    }
+    return cells;
+}
+
 QVector<ScatterPlotItem::GateOverlay> ScatterPlotItem::toGateOverlays(const QVariantList &values) {
     QVector<GateOverlay> overlays;
     overlays.reserve(values.size());
@@ -508,6 +567,67 @@ QSGGeometryNode *ScatterPlotItem::buildSeriesNode(
         vertices[offset++].set(right, top);
         vertices[offset++].set(right, bottom);
     }
+
+    auto *material = new QSGFlatColorMaterial();
+    material->setColor(color);
+
+    auto *node = new QSGGeometryNode();
+    node->setGeometry(geometry);
+    node->setMaterial(material);
+    node->setFlag(QSGNode::OwnsGeometry, true);
+    node->setFlag(QSGNode::OwnsMaterial, true);
+    return node;
+}
+
+QSGGeometryNode *ScatterPlotItem::buildDensityNode(
+    const QVector<DensityCell> &cells,
+    int band,
+    int bandCount,
+    const QRectF &bounds,
+    const QRectF &plotArea) const {
+    if (cells.isEmpty() || bandCount <= 0 || band < 0 || band >= bandCount) {
+        return nullptr;
+    }
+
+    const double lower = static_cast<double>(band) / static_cast<double>(bandCount);
+    const double upper = static_cast<double>(band + 1) / static_cast<double>(bandCount);
+    int cellCount = 0;
+    for (const DensityCell &cell : cells) {
+        if (cell.intensity > lower && cell.intensity <= upper) {
+            ++cellCount;
+        }
+    }
+    if (cellCount == 0) {
+        return nullptr;
+    }
+
+    auto *geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), cellCount * 6);
+    geometry->setDrawingMode(QSGGeometry::DrawTriangles);
+    auto *vertices = geometry->vertexDataAsPoint2D();
+
+    int offset = 0;
+    for (const DensityCell &cell : cells) {
+        if (cell.intensity <= lower || cell.intensity > upper) {
+            continue;
+        }
+
+        const QPointF low = mapDataToPlot(QPointF(cell.bounds.left(), cell.bounds.top()), bounds, plotArea);
+        const QPointF high = mapDataToPlot(QPointF(cell.bounds.right(), cell.bounds.bottom()), bounds, plotArea);
+        const float left = static_cast<float>(qMin(low.x(), high.x()));
+        const float right = static_cast<float>(qMax(low.x(), high.x()));
+        const float top = static_cast<float>(qMin(low.y(), high.y()));
+        const float bottom = static_cast<float>(qMax(low.y(), high.y()));
+
+        vertices[offset++].set(left, top);
+        vertices[offset++].set(right, top);
+        vertices[offset++].set(left, bottom);
+        vertices[offset++].set(left, bottom);
+        vertices[offset++].set(right, top);
+        vertices[offset++].set(right, bottom);
+    }
+
+    QColor color("#d8913c");
+    color.setAlphaF(0.10 + (0.07 * static_cast<double>(band)));
 
     auto *material = new QSGFlatColorMaterial();
     material->setColor(color);

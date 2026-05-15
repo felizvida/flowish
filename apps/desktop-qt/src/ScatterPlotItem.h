@@ -2,6 +2,7 @@
 
 #include <QPointF>
 #include <QQuickItem>
+#include <QRectF>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -18,6 +19,7 @@ class ScatterPlotItem : public QQuickItem {
     Q_PROPERTY(QVariantList highlightPoints READ highlightPoints WRITE setHighlightPoints NOTIFY highlightPointsChanged)
     Q_PROPERTY(QVariantMap pointColumns READ pointColumns WRITE setPointColumns NOTIFY pointColumnsChanged)
     Q_PROPERTY(QVariantMap highlightPointColumns READ highlightPointColumns WRITE setHighlightPointColumns NOTIFY highlightPointColumnsChanged)
+    Q_PROPERTY(QVariantMap densityGrid READ densityGrid WRITE setDensityGrid NOTIFY densityGridChanged)
     Q_PROPERTY(QVariantList gateOverlays READ gateOverlays WRITE setGateOverlays NOTIFY gateOverlaysChanged)
     Q_PROPERTY(QString selectedPopulationKey READ selectedPopulationKey WRITE setSelectedPopulationKey NOTIFY selectedPopulationKeyChanged)
     Q_PROPERTY(double xMin READ xMin WRITE setXMin NOTIFY plotRangeChanged)
@@ -33,6 +35,7 @@ public:
     QVariantList highlightPoints() const;
     QVariantMap pointColumns() const;
     QVariantMap highlightPointColumns() const;
+    QVariantMap densityGrid() const;
     QVariantList gateOverlays() const;
     QString selectedPopulationKey() const;
     double xMin() const;
@@ -45,6 +48,7 @@ public:
     void setHighlightPoints(const QVariantList &points);
     void setPointColumns(const QVariantMap &columns);
     void setHighlightPointColumns(const QVariantMap &columns);
+    void setDensityGrid(const QVariantMap &densityGrid);
     void setGateOverlays(const QVariantList &overlays);
     void setSelectedPopulationKey(const QString &populationKey);
     void setXMin(double value);
@@ -58,6 +62,7 @@ signals:
     void highlightPointsChanged();
     void pointColumnsChanged();
     void highlightPointColumnsChanged();
+    void densityGridChanged();
     void gateOverlaysChanged();
     void selectedPopulationKeyChanged();
     void plotRangeChanged();
@@ -77,8 +82,14 @@ private:
         QVector<QPointF> vertices;
     };
 
+    struct DensityCell {
+        QRectF bounds;
+        double intensity;
+    };
+
     static QVector<QPointF> toPointVector(const QVariantList &values);
     static QVector<QPointF> toPointVector(const QVariantMap &columns);
+    static QVector<DensityCell> toDensityCells(const QVariantMap &densityGrid);
     static QVector<GateOverlay> toGateOverlays(const QVariantList &values);
     static QVariantList toVariantList(const QVector<QPointF> &values);
     QRectF dataRect() const;
@@ -94,6 +105,12 @@ private:
         qreal pointSize,
         const QRectF &dataRect,
         const QRectF &plotArea) const;
+    QSGGeometryNode *buildDensityNode(
+        const QVector<DensityCell> &cells,
+        int band,
+        int bandCount,
+        const QRectF &dataRect,
+        const QRectF &plotArea) const;
     QSGGeometryNode *buildSelectionNode(const QRectF &selectionRect) const;
     QSGGeometryNode *buildPolylineNode(
         const QVector<QPointF> &points,
@@ -105,10 +122,12 @@ private:
     QVariantList highlightPoints_;
     QVariantMap pointColumns_;
     QVariantMap highlightPointColumns_;
+    QVariantMap densityGrid_;
     QVariantList gateOverlays_;
     QString selectedPopulationKey_ = "__all__";
     QVector<QPointF> allPointBuffer_;
     QVector<QPointF> highlightPointBuffer_;
+    QVector<DensityCell> densityCellBuffer_;
     QVector<GateOverlay> gateOverlayBuffer_;
     double xMin_ = 0.0;
     double xMax_ = 1.0;

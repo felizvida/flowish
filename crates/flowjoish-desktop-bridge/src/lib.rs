@@ -4086,6 +4086,7 @@ fn scatter_plot_json(
 
     let sampled_indices = sampled_event_indices(sample.event_count(), SCATTER_POINT_LIMIT);
     let point_columns = point_columns_json(sample, x_index, y_index, &sampled_indices);
+    let density_grid = scatter_density_grid_json(sample, x_index, y_index, range, &sampled_indices);
     let mut population_event_indices = BTreeMap::new();
     for population in state.populations.values() {
         population_event_indices.insert(
@@ -4118,6 +4119,7 @@ fn scatter_plot_json(
             JsonValue::Bool(sample.event_count() > sampled_indices.len()),
         ),
         ("point_columns", point_columns),
+        ("density_grid", density_grid),
         (
             "population_event_indices",
             JsonValue::Object(population_event_indices),
@@ -4138,6 +4140,125 @@ fn scatter_plot_json(
             ]),
         ),
     ]))
+}
+
+fn scatter_density_grid_json(
+    sample: &SampleFrame,
+    x_index: usize,
+    y_index: usize,
+    range: &PlotRangeState,
+    event_indices: &[usize],
+) -> JsonValue {
+    let bin_count = SCATTER_DENSITY_BIN_COUNT.max(1);
+    let x_span = range.x_max - range.x_min;
+    let y_span = range.y_max - range.y_min;
+    if event_indices.is_empty()
+        || !range.x_min.is_finite()
+        || !range.x_max.is_finite()
+        || !range.y_min.is_finite()
+        || !range.y_max.is_finite()
+        || x_span <= 0.0
+        || y_span <= 0.0
+    {
+        return JsonValue::object([
+            ("x_bins", JsonValue::Number(0.0)),
+            ("y_bins", JsonValue::Number(0.0)),
+            (
+                "source_event_count",
+                JsonValue::Number(event_indices.len() as f64),
+            ),
+            ("binned_event_count", JsonValue::Number(0.0)),
+            ("max_count", JsonValue::Number(0.0)),
+            (
+                "sampled",
+                JsonValue::Bool(sample.event_count() > event_indices.len()),
+            ),
+            ("cells", JsonValue::Array(Vec::new())),
+        ]);
+    }
+
+    let mut counts = vec![0u32; bin_count * bin_count];
+    let mut binned_event_count = 0u64;
+    for event_index in event_indices {
+        let Some(row) = sample.events().get(*event_index) else {
+            continue;
+        };
+        let x = row[x_index];
+        let y = row[y_index];
+        if !x.is_finite()
+            || !y.is_finite()
+            || x < range.x_min
+            || x > range.x_max
+            || y < range.y_min
+            || y > range.y_max
+        {
+            continue;
+        }
+
+        let x_bin = if x >= range.x_max {
+            bin_count - 1
+        } else {
+            (((x - range.x_min) / x_span) * bin_count as f64).floor() as usize
+        }
+        .min(bin_count - 1);
+        let y_bin = if y >= range.y_max {
+            bin_count - 1
+        } else {
+            (((y - range.y_min) / y_span) * bin_count as f64).floor() as usize
+        }
+        .min(bin_count - 1);
+
+        counts[(y_bin * bin_count) + x_bin] += 1;
+        binned_event_count += 1;
+    }
+
+    let max_count = counts.iter().copied().max().unwrap_or(0);
+    let x_width = x_span / bin_count as f64;
+    let y_width = y_span / bin_count as f64;
+    let mut cells = Vec::new();
+    if max_count > 0 {
+        for y_bin in 0..bin_count {
+            for x_bin in 0..bin_count {
+                let count = counts[(y_bin * bin_count) + x_bin];
+                if count == 0 {
+                    continue;
+                }
+
+                let x_min = range.x_min + (x_bin as f64 * x_width);
+                let y_min = range.y_min + (y_bin as f64 * y_width);
+                cells.push(JsonValue::object([
+                    ("x_min", JsonValue::Number(x_min)),
+                    ("x_max", JsonValue::Number(x_min + x_width)),
+                    ("y_min", JsonValue::Number(y_min)),
+                    ("y_max", JsonValue::Number(y_min + y_width)),
+                    ("count", JsonValue::Number(count as f64)),
+                    (
+                        "intensity",
+                        JsonValue::Number(count as f64 / max_count as f64),
+                    ),
+                ]));
+            }
+        }
+    }
+
+    JsonValue::object([
+        ("x_bins", JsonValue::Number(bin_count as f64)),
+        ("y_bins", JsonValue::Number(bin_count as f64)),
+        (
+            "source_event_count",
+            JsonValue::Number(event_indices.len() as f64),
+        ),
+        (
+            "binned_event_count",
+            JsonValue::Number(binned_event_count as f64),
+        ),
+        ("max_count", JsonValue::Number(max_count as f64)),
+        (
+            "sampled",
+            JsonValue::Bool(sample.event_count() > event_indices.len()),
+        ),
+        ("cells", JsonValue::Array(cells)),
+    ])
 }
 
 fn scatter_gate_overlays(
@@ -4668,6 +4789,7 @@ fn compensation_matrix_hash(compensation: Option<&CompensationMatrix>) -> u64 {
 }
 
 const SCATTER_POINT_LIMIT: usize = 20_000;
+const SCATTER_DENSITY_BIN_COUNT: usize = 48;
 const COMPARISON_CACHE_LIMIT: usize = 32;
 
 fn point_columns_json(
@@ -4812,7 +4934,7 @@ fn axis_bounds(sample: &SampleFrame, index: usize) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::{
-        DesktopSession, SCATTER_POINT_LIMIT, bootstrap_json_string,
+        DesktopSession, SCATTER_DENSITY_BIN_COUNT, SCATTER_POINT_LIMIT, bootstrap_json_string,
         flowjoish_desktop_session_apply_active_template_to_other_samples,
         flowjoish_desktop_session_dispatch_json, flowjoish_desktop_session_export_batch_stats_csv,
         flowjoish_desktop_session_export_population_comparison_csv,
@@ -5544,6 +5666,32 @@ mod tests {
                 .and_then(|indices| indices.first())
                 .and_then(JsonValue::as_u64),
             Some(0)
+        );
+        let density_grid = plot.get("density_grid").expect("density grid");
+        assert_eq!(
+            density_grid.get("x_bins").and_then(JsonValue::as_u64),
+            Some(SCATTER_DENSITY_BIN_COUNT as u64)
+        );
+        assert_eq!(
+            density_grid.get("y_bins").and_then(JsonValue::as_u64),
+            Some(SCATTER_DENSITY_BIN_COUNT as u64)
+        );
+        assert_eq!(
+            density_grid
+                .get("source_event_count")
+                .and_then(JsonValue::as_u64),
+            Some(SCATTER_POINT_LIMIT as u64)
+        );
+        assert_eq!(
+            density_grid.get("sampled").and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert!(
+            density_grid
+                .get("cells")
+                .and_then(JsonValue::as_array)
+                .is_some_and(|cells| !cells.is_empty()
+                    && cells.len() <= SCATTER_DENSITY_BIN_COUNT * SCATTER_DENSITY_BIN_COUNT)
         );
 
         let gate = JsonValue::object([
