@@ -1225,7 +1225,7 @@ ApplicationWindow {
                             Text {
                                 width: parent.width
                                 text: window.activeGateTool === "rectangle"
-                                      ? "Drag directly on either plot to create a rectangle gate, or use Quadrants on a scatter plot to create four midpoint rectangle gates. Every gate is appended to the Rust command log and becomes a child of the currently selected population."
+                                      ? "Drag directly on either plot to create a rectangle gate, use Quadrants on scatter plots, or use High Gate on histograms. Every gate is appended to the Rust command log and becomes a child of the currently selected population."
                                       : "Click to place polygon vertices on either plot, then right-click to commit. Right-click with fewer than three vertices clears the draft."
                                 color: "#6d5941"
                                 font.pixelSize: 13
@@ -1572,6 +1572,12 @@ ApplicationWindow {
                             }
 
                             Button {
+                                text: "High Gate"
+                                enabled: (plotA.kind || "") === "histogram"
+                                onClicked: desktopController.createHistogramHighGateForPlot(plotA.id || "")
+                            }
+
+                            Button {
                                 text: "Zoom In"
                                 onClicked: desktopController.scalePlotView(plotA.id || "", 0.7)
                             }
@@ -1705,6 +1711,12 @@ ApplicationWindow {
                                 text: "Quadrants"
                                 enabled: (plotB.kind || "scatter") !== "histogram"
                                 onClicked: desktopController.createQuadrantGatesForPlot(plotB.id || "")
+                            }
+
+                            Button {
+                                text: "High Gate"
+                                enabled: (plotB.kind || "") === "histogram"
+                                onClicked: desktopController.createHistogramHighGateForPlot(plotB.id || "")
                             }
 
                             Button {
@@ -1842,6 +1854,12 @@ ApplicationWindow {
                                 text: "Quadrants"
                                 enabled: (plotC.kind || "scatter") !== "histogram"
                                 onClicked: desktopController.createQuadrantGatesForPlot(plotC.id || "")
+                            }
+
+                            Button {
+                                text: "High Gate"
+                                enabled: (plotC.kind || "") === "histogram"
+                                onClicked: desktopController.createHistogramHighGateForPlot(plotC.id || "")
                             }
 
                             Button {

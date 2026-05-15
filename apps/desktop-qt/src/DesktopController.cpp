@@ -944,6 +944,51 @@ bool DesktopController::createQuadrantGatesForPlot(const QString &plotId) {
         QJsonDocument(command).toJson(QJsonDocument::Compact)));
 }
 
+bool DesktopController::createHistogramHighGateForPlot(const QString &plotId) {
+    const QVariantMap plot = plotDefinition(plotId);
+    if (plot.isEmpty()) {
+        setLastError(QStringLiteral("Unknown plot '%1'").arg(plotId));
+        return false;
+    }
+    if (plot.value("kind").toString() != QStringLiteral("histogram")) {
+        setLastError("High gates require a histogram plot");
+        return false;
+    }
+
+    const QString channel = plot.value("x_channel").toString();
+    if (channel.trimmed().isEmpty()) {
+        setLastError("High gates require a named histogram channel");
+        return false;
+    }
+
+    const QVariantMap xRange = plot.value("x_range").toMap();
+    const double xMin = qMin(xRange.value("min").toDouble(), xRange.value("max").toDouble());
+    const double xMax = qMax(xRange.value("min").toDouble(), xRange.value("max").toDouble());
+    if (!std::isfinite(xMin) || !std::isfinite(xMax) || qFuzzyIsNull(xMax - xMin)) {
+        setLastError("High gates require a finite, non-degenerate histogram range");
+        return false;
+    }
+
+    const QString populationId = nextInteractivePopulationId(plotId) + QStringLiteral("_high");
+    QJsonObject command;
+    command.insert("kind", "range_gate");
+    const QString sampleId = activeSampleId();
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("population_id", populationId);
+    if (selectedPopulationKey_ == "__all__") {
+        command.insert("parent_population", QJsonValue());
+    } else {
+        command.insert("parent_population", selectedPopulationKey_);
+    }
+    command.insert("channel", channel);
+    command.insert("min", xMin + ((xMax - xMin) / 2.0));
+    command.insert("max", xMax);
+
+    return commitInteractiveCommand(command, populationId);
+}
+
 bool DesktopController::commitInteractiveCommand(
     const QJsonObject &command,
     const QString &populationId) {

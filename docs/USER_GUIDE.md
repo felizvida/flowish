@@ -106,7 +106,8 @@ How it behaves today:
 - histograms are computed in Rust from the same replayed sample state as gating and scatter plots
 - the active population highlights its own per-bin counts on top of the full distribution
 - the histogram responds to `Auto`, `Focus`, `Zoom In`, and `Zoom Out` like the scatter plots
-- histogram panels are read-only today and do not accept gate drawing gestures
+- `High Gate` creates a replayable one-channel `range_gate` from the midpoint of the current histogram view to the visible maximum
+- histogram panels do not yet support drag-authored interval gates or editable threshold handles
 
 Parallax currently chooses the histogram channel automatically, preferring a non-time, non-structural analysis channel such as a fluorescence marker when available.
 
@@ -223,6 +224,27 @@ How it works:
 - Right-click to commit the polygon
 
 If you right-click before placing at least three vertices, Parallax clears the draft instead of creating an invalid gate.
+
+### Quadrants
+
+Use `Quadrants` on a scatter plot when an assay needs four threshold-defined fractions, such as Annexin V by 7-AAD/PI apoptosis review.
+
+What happens next:
+
+- Parallax splits the current scatter view at its x/y midpoint
+- Four replayable `rectangle_gate` commands are appended atomically
+- The four populations appear in the population list and can be compared or exported like any other population
+
+### Histogram High Gate
+
+Use `High Gate` on a histogram when you need a quick marker-positive population for workflows such as γH2AX, TMRE, reporter positivity, or other one-channel intensity checks.
+
+What happens next:
+
+- Parallax creates a `range_gate` on the histogram channel
+- The lower bound is the midpoint of the current visible histogram range
+- The upper bound is the current visible maximum
+- The new population is selected immediately so the histogram highlights its gated bins
 
 ## Command Log
 

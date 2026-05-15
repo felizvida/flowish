@@ -104,6 +104,7 @@ public:
         const QString &plotId,
         const QVariantList &vertices);
     Q_INVOKABLE bool createQuadrantGatesForPlot(const QString &plotId);
+    Q_INVOKABLE bool createHistogramHighGateForPlot(const QString &plotId);
 
 signals:
     void snapshotChanged();

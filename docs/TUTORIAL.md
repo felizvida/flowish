@@ -6,6 +6,7 @@ By the end, you will:
 
 - create a root rectangle gate
 - create a child polygon gate
+- create a histogram high gate
 - apply a transform preset
 - refocus a plot on the active population
 - inspect population stats and export them
@@ -99,7 +100,19 @@ You should now see two ordered entries:
 
 This is the important Parallax idea: your analysis is represented as an ordered, replayable sequence of explicit commands.
 
-## Step 6. Apply A Transform Preset
+## Step 6. Create A Histogram High Gate
+
+Click the histogram panel's `High Gate` button.
+
+Expected result:
+
+- a new population appears in the list
+- the command log gains one `range_gate`
+- the histogram highlights the bins that fall in the high range
+
+The current implementation uses the midpoint of the visible histogram x-range as the lower threshold. Use `Zoom In`, `Zoom Out`, or `Auto` first if you want to change the visible range before creating the gate.
+
+## Step 7. Apply A Transform Preset
 
 In the `Analysis Settings` panel, change the transform for `CD3` or `CD4`.
 
@@ -114,7 +127,7 @@ Expected result:
 - the analysis history gains a new transform action
 - the workspace will remember the transform if you save it later
 
-## Step 7. Refocus A Plot
+## Step 8. Refocus A Plot
 
 Select your child population in the population list, then click `Focus` above one of the plots.
 
@@ -125,7 +138,7 @@ Expected result:
 - the workspace will remember this view action
 - if you focus the histogram panel instead, its x-range tightens around the selected population's distribution
 
-## Step 8. Inspect Population Stats
+## Step 9. Inspect Population Stats
 
 Look at the `Population Stats` panel in the left rail while your child population is selected.
 
@@ -137,7 +150,7 @@ Expected result:
 
 If you want a file output, click `Export Stats CSV` and save the active sample's stats table.
 
-## Step 9. Configure A Derived Metric
+## Step 10. Configure A Derived Metric
 
 Use the `Derived Metric` panel in the left rail while your child population is still selected.
 
@@ -152,7 +165,7 @@ Expected result:
 - if you loaded multiple samples, the cohort summary also shows the cohort-level mean for that metric
 - `Export Derived Metric CSV` saves the selected population's derived-metric table
 
-## Step 10. Optional Batch Workflow
+## Step 11. Optional Batch Workflow
 
 If you imported more than one compatible sample, keep your current sample selected and click `Apply Template To Other Samples`.
 
@@ -170,7 +183,7 @@ Expected result:
 - you can click `Export Cohort Summary CSV` to save the grouped cohort summary
 - you can then click `Export Batch Stats CSV` to write one grouped table across all loaded samples
 
-## Step 11. Use Undo and Redo
+## Step 12. Use Undo and Redo
 
 Click `Undo`.
 
@@ -189,7 +202,7 @@ Expected result:
 
 Note that undo and redo currently apply to gate commands only. Transform and plot-view actions remain explicit session state, but are not yet part of the undo stack.
 
-## Step 12. Reset the Session
+## Step 13. Reset the Session
 
 Click `Reset Session`.
 
@@ -201,7 +214,7 @@ Expected result:
 
 This gives you a clean slate without restarting the application.
 
-## Step 13. Compare Against the CLI
+## Step 14. Compare Against the CLI
 
 If you want to see the same replay philosophy outside the desktop, run:
 
@@ -215,7 +228,7 @@ That command prints:
 - the execution hash
 - matched-event counts for the replayed populations
 
-## Step 14. Save The Session
+## Step 15. Save The Session
 
 Click `Save Workspace As` if you want to persist the current desktop session.
 

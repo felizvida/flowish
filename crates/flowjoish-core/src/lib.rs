@@ -14,8 +14,8 @@ pub use analysis::{
 pub use bitmask::BitMask;
 pub use command::{Command, CommandLog, CommandRecord};
 pub use gating::{
-    GateDefinition, GateShape, GatingError, Point2D, PolygonGate, Population, RectangleGate,
-    SampleError, SampleFrame,
+    GateDefinition, GateShape, GatingError, Point2D, PolygonGate, Population, RangeGate,
+    RectangleGate, SampleError, SampleFrame,
 };
 pub use hash::{StableHasher, stable_hash_bytes, stable_hash_str};
 pub use json::{JsonError, JsonValue};

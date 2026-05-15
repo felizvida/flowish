@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
-use crate::gating::{GateDefinition, GateShape, Point2D, PolygonGate, RectangleGate};
+use crate::gating::{GateDefinition, GateShape, Point2D, PolygonGate, RangeGate, RectangleGate};
 use crate::hash::StableHasher;
 use crate::json::{JsonError, JsonValue};
 
@@ -17,6 +17,14 @@ pub enum Command {
         x_max: f64,
         y_min: f64,
         y_max: f64,
+    },
+    RangeGate {
+        sample_id: String,
+        population_id: String,
+        parent_population: Option<String>,
+        channel: String,
+        min: f64,
+        max: f64,
     },
     PolygonGate {
         sample_id: String,
@@ -88,15 +96,16 @@ impl Command {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::RectangleGate { .. } => "rectangle_gate",
+            Self::RangeGate { .. } => "range_gate",
             Self::PolygonGate { .. } => "polygon_gate",
         }
     }
 
     pub fn sample_id(&self) -> &str {
         match self {
-            Self::RectangleGate { sample_id, .. } | Self::PolygonGate { sample_id, .. } => {
-                sample_id
-            }
+            Self::RectangleGate { sample_id, .. }
+            | Self::RangeGate { sample_id, .. }
+            | Self::PolygonGate { sample_id, .. } => sample_id,
         }
     }
 
@@ -124,6 +133,21 @@ impl Command {
                 y_min: *y_min,
                 y_max: *y_max,
             },
+            Self::RangeGate {
+                population_id,
+                parent_population,
+                channel,
+                min,
+                max,
+                ..
+            } => Self::RangeGate {
+                sample_id,
+                population_id: population_id.clone(),
+                parent_population: parent_population.clone(),
+                channel: channel.clone(),
+                min: *min,
+                max: *max,
+            },
             Self::PolygonGate {
                 population_id,
                 parent_population,
@@ -144,15 +168,18 @@ impl Command {
 
     pub fn population_id(&self) -> &str {
         match self {
-            Self::RectangleGate { population_id, .. } | Self::PolygonGate { population_id, .. } => {
-                population_id
-            }
+            Self::RectangleGate { population_id, .. }
+            | Self::RangeGate { population_id, .. }
+            | Self::PolygonGate { population_id, .. } => population_id,
         }
     }
 
     pub fn parent_population(&self) -> Option<&str> {
         match self {
             Self::RectangleGate {
+                parent_population, ..
+            }
+            | Self::RangeGate {
                 parent_population, ..
             }
             | Self::PolygonGate {
@@ -180,6 +207,23 @@ impl Command {
                 y_channel: y_channel.clone(),
                 shape: GateShape::Rectangle(
                     RectangleGate::new(*x_min, *x_max, *y_min, *y_max)
+                        .map_err(|error| CommandError::InvalidGeometry(error.to_string()))?,
+                ),
+            }),
+            Self::RangeGate {
+                population_id,
+                parent_population,
+                channel,
+                min,
+                max,
+                ..
+            } => Ok(GateDefinition {
+                population_id: population_id.clone(),
+                parent_population: parent_population.clone(),
+                x_channel: channel.clone(),
+                y_channel: channel.clone(),
+                shape: GateShape::Range(
+                    RangeGate::new(*min, *max)
                         .map_err(|error| CommandError::InvalidGeometry(error.to_string()))?,
                 ),
             }),
@@ -236,6 +280,25 @@ impl Command {
                 ("y_min", JsonValue::Number(*y_min)),
                 ("y_max", JsonValue::Number(*y_max)),
             ]),
+            Self::RangeGate {
+                sample_id,
+                population_id,
+                parent_population,
+                channel,
+                min,
+                max,
+            } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind().to_string())),
+                ("sample_id", JsonValue::String(sample_id.clone())),
+                ("population_id", JsonValue::String(population_id.clone())),
+                (
+                    "parent_population",
+                    option_to_json(parent_population.as_ref()),
+                ),
+                ("channel", JsonValue::String(channel.clone())),
+                ("min", JsonValue::Number(*min)),
+                ("max", JsonValue::Number(*max)),
+            ]),
             Self::PolygonGate {
                 sample_id,
                 population_id,
@@ -284,6 +347,14 @@ impl Command {
                 x_max: required_number(value, "x_max")?,
                 y_min: required_number(value, "y_min")?,
                 y_max: required_number(value, "y_max")?,
+            }),
+            "range_gate" => Ok(Self::RangeGate {
+                sample_id: required_string(value, "sample_id")?.to_string(),
+                population_id: required_string(value, "population_id")?.to_string(),
+                parent_population: optional_string(value, "parent_population")?,
+                channel: required_string(value, "channel")?.to_string(),
+                min: required_number(value, "min")?,
+                max: required_number(value, "max")?,
             }),
             "polygon_gate" => Ok(Self::PolygonGate {
                 sample_id: required_string(value, "sample_id")?.to_string(),
@@ -493,10 +564,18 @@ mod tests {
             y_min: 1.0,
             y_max: 11.0,
         });
+        log.append(Command::RangeGate {
+            sample_id: "sample-a".to_string(),
+            population_id: "cd3_high".to_string(),
+            parent_population: Some("lymphocytes".to_string()),
+            channel: "CD3".to_string(),
+            min: 5.0,
+            max: 100.0,
+        });
         log.append(Command::PolygonGate {
             sample_id: "sample-a".to_string(),
             population_id: "cd3".to_string(),
-            parent_population: Some("lymphocytes".to_string()),
+            parent_population: Some("cd3_high".to_string()),
             x_channel: "CD3".to_string(),
             y_channel: "CD4".to_string(),
             vertices: vec![

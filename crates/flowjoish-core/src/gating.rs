@@ -44,6 +44,30 @@ impl RectangleGate {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct RangeGate {
+    pub min: f64,
+    pub max: f64,
+}
+
+impl RangeGate {
+    pub fn new(min: f64, max: f64) -> Result<Self, GatingError> {
+        if !min.is_finite() || !max.is_finite() {
+            return Err(GatingError::InvalidGeometry(
+                "range gate values must be finite".to_string(),
+            ));
+        }
+        Ok(Self {
+            min: min.min(max),
+            max: min.max(max),
+        })
+    }
+
+    fn contains(&self, value: f64) -> bool {
+        value >= self.min && value <= self.max
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct PolygonGate {
     pub vertices: Vec<Point2D>,
 }
@@ -91,6 +115,7 @@ impl PolygonGate {
 #[derive(Clone, Debug, PartialEq)]
 pub enum GateShape {
     Rectangle(RectangleGate),
+    Range(RangeGate),
     Polygon(PolygonGate),
 }
 
@@ -98,6 +123,7 @@ impl GateShape {
     fn contains(&self, point: Point2D) -> bool {
         match self {
             Self::Rectangle(shape) => shape.contains(point),
+            Self::Range(shape) => shape.contains(point.x),
             Self::Polygon(shape) => shape.contains(point),
         }
     }
@@ -298,8 +324,6 @@ pub fn apply_gate(
     gate: &GateDefinition,
     parent_population: Option<&BitMask>,
 ) -> Result<Population, GatingError> {
-    let (x_index, y_index) = sample.axis_pair(&gate.x_channel, &gate.y_channel)?;
-
     if let Some(parent) = parent_population
         && parent.len() != sample.event_count()
     {
@@ -309,20 +333,41 @@ pub fn apply_gate(
         });
     }
 
-    let mask = BitMask::from_predicate(sample.event_count(), |event_index| {
-        if let Some(parent) = parent_population
-            && !parent.contains(event_index)
-        {
-            return false;
-        }
+    let mask = match &gate.shape {
+        GateShape::Range(shape) => {
+            let x_index = sample
+                .channel_lookup
+                .get(&gate.x_channel)
+                .copied()
+                .ok_or_else(|| GatingError::UnknownChannel(gate.x_channel.clone()))?;
+            BitMask::from_predicate(sample.event_count(), |event_index| {
+                if let Some(parent) = parent_population
+                    && !parent.contains(event_index)
+                {
+                    return false;
+                }
 
-        let row = &sample.events[event_index];
-        let point = Point2D {
-            x: row[x_index],
-            y: row[y_index],
-        };
-        gate.shape.contains(point)
-    });
+                shape.contains(sample.events[event_index][x_index])
+            })
+        }
+        GateShape::Rectangle(_) | GateShape::Polygon(_) => {
+            let (x_index, y_index) = sample.axis_pair(&gate.x_channel, &gate.y_channel)?;
+            BitMask::from_predicate(sample.event_count(), |event_index| {
+                if let Some(parent) = parent_population
+                    && !parent.contains(event_index)
+                {
+                    return false;
+                }
+
+                let row = &sample.events[event_index];
+                let point = Point2D {
+                    x: row[x_index],
+                    y: row[y_index],
+                };
+                gate.shape.contains(point)
+            })
+        }
+    };
 
     Ok(Population {
         sample_id: sample.sample_id.clone(),
@@ -369,7 +414,8 @@ fn compute_sample_fingerprint(sample_id: &str, channels: &[String], events: &[Ve
 #[cfg(test)]
 mod tests {
     use super::{
-        GateDefinition, GateShape, Point2D, PolygonGate, RectangleGate, SampleFrame, apply_gate,
+        GateDefinition, GateShape, Point2D, PolygonGate, RangeGate, RectangleGate, SampleFrame,
+        apply_gate,
     };
     use crate::bitmask::BitMask;
 
@@ -401,6 +447,20 @@ mod tests {
         let result = apply_gate(&sample(), &gate, None).expect("gate applies");
         assert_eq!(result.matched_events, 3);
         assert_eq!(result.mask.iter_ones().collect::<Vec<_>>(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn range_gates_are_boundary_inclusive() {
+        let gate = GateDefinition {
+            population_id: "range".to_string(),
+            parent_population: None,
+            x_channel: "FSC-A".to_string(),
+            y_channel: "FSC-A".to_string(),
+            shape: GateShape::Range(RangeGate::new(30.0, 50.0).expect("range")),
+        };
+        let result = apply_gate(&sample(), &gate, None).expect("gate applies");
+        assert_eq!(result.matched_events, 2);
+        assert_eq!(result.mask.iter_ones().collect::<Vec<_>>(), vec![1, 2]);
     }
 
     #[test]

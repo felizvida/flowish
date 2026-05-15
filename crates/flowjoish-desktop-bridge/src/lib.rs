@@ -6047,6 +6047,56 @@ mod tests {
     }
 
     #[test]
+    fn session_dispatches_histogram_range_gate() {
+        let mut session = DesktopSession::new().expect("session");
+        let command = JsonValue::object([
+            ("kind", JsonValue::String("range_gate".to_string())),
+            ("sample_id", JsonValue::String("desktop-demo".to_string())),
+            ("population_id", JsonValue::String("cd3_high".to_string())),
+            ("parent_population", JsonValue::Null),
+            ("channel", JsonValue::String("CD3".to_string())),
+            ("min", JsonValue::Number(5.0)),
+            ("max", JsonValue::Number(9.0)),
+        ])
+        .stringify_canonical();
+
+        let snapshot = session.dispatch_json(&command);
+        assert_eq!(
+            snapshot.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(
+            snapshot.get("command_count").and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot
+                .get("population_stats")
+                .and_then(|value| value.get("cd3_high"))
+                .and_then(|value| value.get("matched_events"))
+                .and_then(JsonValue::as_u64),
+            Some(2)
+        );
+        let histogram = snapshot
+            .get("plots")
+            .and_then(JsonValue::as_array)
+            .and_then(|plots| {
+                plots
+                    .iter()
+                    .find(|plot| plot.get("kind").and_then(JsonValue::as_str) == Some("histogram"))
+            })
+            .expect("histogram plot");
+        assert!(
+            histogram
+                .get("population_bins")
+                .and_then(|bins| bins.get("cd3_high"))
+                .and_then(JsonValue::as_array)
+                .is_some(),
+            "histogram should expose bins for the range-gated population"
+        );
+    }
+
+    #[test]
     fn session_undo_and_redo_update_command_state() {
         let mut session = DesktopSession::new().expect("session");
         let command = JsonValue::object([
