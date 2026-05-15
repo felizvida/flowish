@@ -27,6 +27,16 @@ struct DesktopSampleArtifact {
     compensation: Option<CompensationMatrix>,
 }
 
+#[derive(Clone, Debug, Default)]
+struct AssayWorkflowReadinessAccumulator {
+    name: String,
+    sample_count: usize,
+    compatible_sample_count: usize,
+    partial_sample_count: usize,
+    missing_sample_count: usize,
+    samples: Vec<JsonValue>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct PopulationComparisonRow {
     sample_id: String,
@@ -912,6 +922,14 @@ impl DesktopSession {
             (
                 "samples",
                 samples_json(&self.environment, &self.sample_order, &self.sample_info),
+            ),
+            (
+                "assay_workflow_readiness",
+                assay_workflow_readiness_json(
+                    &self.sample_order,
+                    &self.sample_info,
+                    &self.sample_artifacts,
+                ),
             ),
             (
                 "sample",
@@ -2987,6 +3005,121 @@ fn sample_json(
             ),
         ),
     ])
+}
+
+fn assay_workflow_readiness_json(
+    sample_order: &[String],
+    sample_info: &BTreeMap<String, DesktopSampleInfo>,
+    sample_artifacts: &BTreeMap<String, DesktopSampleArtifact>,
+) -> JsonValue {
+    let mut workflow_order = Vec::new();
+    let mut readiness = BTreeMap::<String, AssayWorkflowReadinessAccumulator>::new();
+
+    for sample_id in sample_order {
+        let Some(info) = sample_info.get(sample_id) else {
+            continue;
+        };
+        let Some(artifact) = sample_artifacts.get(sample_id) else {
+            continue;
+        };
+        let workflows = assay_workflows_json(&artifact.raw_sample);
+        let Some(workflows) = workflows.as_array() else {
+            continue;
+        };
+
+        for workflow in workflows {
+            let Some(workflow_id) = workflow.get("id").and_then(JsonValue::as_str) else {
+                continue;
+            };
+            if workflow_id.is_empty() {
+                continue;
+            }
+            let name = workflow
+                .get("name")
+                .and_then(JsonValue::as_str)
+                .unwrap_or(workflow_id);
+            let status = workflow
+                .get("status")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("missing");
+            if !readiness.contains_key(workflow_id) {
+                workflow_order.push(workflow_id.to_string());
+                readiness.insert(
+                    workflow_id.to_string(),
+                    AssayWorkflowReadinessAccumulator {
+                        name: name.to_string(),
+                        ..Default::default()
+                    },
+                );
+            }
+
+            let row = readiness
+                .get_mut(workflow_id)
+                .expect("workflow accumulator was inserted");
+            row.sample_count += 1;
+            match status {
+                "compatible" => row.compatible_sample_count += 1,
+                "partial" => row.partial_sample_count += 1,
+                _ => row.missing_sample_count += 1,
+            }
+            row.samples.push(JsonValue::object([
+                ("sample_id", JsonValue::String(sample_id.clone())),
+                ("display_name", JsonValue::String(info.display_name.clone())),
+                ("group_label", JsonValue::String(info.group_label.clone())),
+                ("status", JsonValue::String(status.to_string())),
+                (
+                    "matched_channels",
+                    workflow
+                        .get("matched_channels")
+                        .cloned()
+                        .unwrap_or_else(|| JsonValue::Array(Vec::new())),
+                ),
+                (
+                    "missing_markers",
+                    workflow
+                        .get("missing_markers")
+                        .cloned()
+                        .unwrap_or_else(|| JsonValue::Array(Vec::new())),
+                ),
+            ]));
+        }
+    }
+
+    JsonValue::Array(
+        workflow_order
+            .into_iter()
+            .filter_map(|workflow_id| {
+                let row = readiness.remove(&workflow_id)?;
+                let status =
+                    if row.sample_count > 0 && row.compatible_sample_count == row.sample_count {
+                        "compatible"
+                    } else if row.compatible_sample_count + row.partial_sample_count > 0 {
+                        "partial"
+                    } else {
+                        "missing"
+                    };
+                Some(JsonValue::object([
+                    ("id", JsonValue::String(workflow_id)),
+                    ("name", JsonValue::String(row.name)),
+                    ("status", JsonValue::String(status.to_string())),
+                    ("sample_count", JsonValue::Number(row.sample_count as f64)),
+                    (
+                        "compatible_sample_count",
+                        JsonValue::Number(row.compatible_sample_count as f64),
+                    ),
+                    (
+                        "partial_sample_count",
+                        JsonValue::Number(row.partial_sample_count as f64),
+                    ),
+                    (
+                        "missing_sample_count",
+                        JsonValue::Number(row.missing_sample_count as f64),
+                    ),
+                    ("samples", JsonValue::Array(row.samples)),
+                ]))
+            })
+            .collect(),
+    )
 }
 
 fn assay_workflows_json(sample: &SampleFrame) -> JsonValue {
@@ -6069,6 +6202,80 @@ mod tests {
         );
 
         let _ = fs::remove_file(sample_path);
+    }
+
+    #[test]
+    fn assay_workflow_readiness_summarizes_batch_compatibility() {
+        let compatible_path = write_temp_test_fcs(
+            "assay-ready-alpha",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "Annexin V", "7-AAD", "CD3", "CD4"],
+                vec![vec![10.0, 12.0, 1.0, 0.2, 8.0, 7.0]],
+                None,
+            ),
+        );
+        let partial_path = write_temp_test_fcs(
+            "assay-ready-beta",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "Annexin V", "CD3"],
+                vec![vec![11.0, 13.0, 1.2, 6.0]],
+                None,
+            ),
+        );
+
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![
+            JsonValue::String(compatible_path.to_string_lossy().to_string()),
+            JsonValue::String(partial_path.to_string_lossy().to_string()),
+        ])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        let readiness = imported
+            .get("assay_workflow_readiness")
+            .and_then(JsonValue::as_array)
+            .expect("assay workflow readiness");
+        let apoptosis = readiness
+            .iter()
+            .find(|workflow| {
+                workflow.get("id").and_then(JsonValue::as_str) == Some("apoptosis-annexin")
+            })
+            .expect("apoptosis readiness");
+        assert_eq!(
+            apoptosis.get("status").and_then(JsonValue::as_str),
+            Some("partial")
+        );
+        assert_eq!(
+            apoptosis
+                .get("compatible_sample_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            apoptosis
+                .get("partial_sample_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            apoptosis
+                .get("missing_sample_count")
+                .and_then(JsonValue::as_u64),
+            Some(0)
+        );
+
+        let immunophenotyping = readiness
+            .iter()
+            .find(|workflow| {
+                workflow.get("id").and_then(JsonValue::as_str) == Some("immunophenotyping")
+            })
+            .expect("immunophenotyping readiness");
+        assert_eq!(
+            immunophenotyping.get("status").and_then(JsonValue::as_str),
+            Some("partial")
+        );
+
+        let _ = fs::remove_file(compatible_path);
+        let _ = fs::remove_file(partial_path);
     }
 
     #[test]

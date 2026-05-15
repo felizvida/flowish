@@ -177,6 +177,10 @@ QVariantList DesktopController::samples() const {
     return samples_;
 }
 
+QVariantList DesktopController::assayWorkflowReadiness() const {
+    return assayWorkflowReadiness_;
+}
+
 QVariantList DesktopController::analysisActions() const {
     return analysisActions_;
 }
@@ -930,6 +934,7 @@ bool DesktopController::applyRustPayload(const QString &payload, bool replaceSna
 void DesktopController::rebuildDerivedState() {
     sample_ = snapshot_.value("sample").toMap();
     samples_ = snapshot_.value("samples").toList();
+    assayWorkflowReadiness_ = snapshot_.value("assay_workflow_readiness").toList();
     analysisActions_ = snapshot_.value("analysis_actions").toList();
     commandCount_ = snapshot_.value("command_count").toInt();
     canUndo_ = snapshot_.value("can_undo").toBool();

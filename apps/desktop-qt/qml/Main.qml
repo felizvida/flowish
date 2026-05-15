@@ -801,6 +801,79 @@ ApplicationWindow {
                                 wrapMode: Text.WordWrap
                             }
 
+                            Column {
+                                width: parent.width
+                                spacing: 8
+                                visible: desktopController.samples.length > 1
+
+                                Text {
+                                    text: "Batch Assay Readiness"
+                                    color: "#2e2216"
+                                    font.pixelSize: 15
+                                    font.weight: Font.Medium
+                                }
+
+                                Repeater {
+                                    model: desktopController.assayWorkflowReadiness || []
+
+                                    delegate: Rectangle {
+                                        id: assayReadinessCard
+                                        width: parent.width
+                                        height: assayReadinessContent.implicitHeight + 20
+                                        radius: 12
+                                        property string readinessStatus: modelData.status || "missing"
+                                        color: readinessStatus === "compatible" ? "#e7f0eb"
+                                              : readinessStatus === "partial" ? "#f6efe1" : "#f7ede8"
+                                        border.width: 1
+                                        border.color: readinessStatus === "compatible" ? "#9fbea9"
+                                                      : readinessStatus === "partial" ? "#d3c2a0" : "#d49b82"
+
+                                        Column {
+                                            id: assayReadinessContent
+                                            anchors.fill: parent
+                                            anchors.margins: 10
+                                            spacing: 4
+
+                                            Text {
+                                                width: parent.width
+                                                text: modelData.name + "  •  "
+                                                      + (assayReadinessCard.readinessStatus === "compatible" ? "Ready across batch"
+                                                         : assayReadinessCard.readinessStatus === "partial" ? "Mixed compatibility"
+                                                         : "Missing across batch")
+                                                color: "#2e2216"
+                                                font.pixelSize: 13
+                                                font.weight: Font.DemiBold
+                                                wrapMode: Text.WordWrap
+                                            }
+
+                                            Text {
+                                                width: parent.width
+                                                text: (modelData.compatible_sample_count || 0)
+                                                      + " compatible, "
+                                                      + (modelData.partial_sample_count || 0)
+                                                      + " partial, "
+                                                      + (modelData.missing_sample_count || 0)
+                                                      + " missing of "
+                                                      + (modelData.sample_count || 0)
+                                                      + " samples"
+                                                color: "#6d5941"
+                                                font.pixelSize: 12
+                                                wrapMode: Text.WordWrap
+                                            }
+
+                                            Text {
+                                                width: parent.width
+                                                visible: assayReadinessCard.readinessStatus !== "compatible"
+                                                text: "Review sample channel mismatches before applying a gate template or exporting cohort summaries."
+                                                color: "#8b4f3d"
+                                                font.pixelSize: 12
+                                                wrapMode: Text.WordWrap
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             Repeater {
                                 model: desktopController.selectedPopulationComparison.samples || []
 

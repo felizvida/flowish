@@ -18,6 +18,7 @@ class DesktopController : public QObject {
     Q_PROPERTY(QString workspacePath READ workspacePath NOTIFY workspacePathChanged)
     Q_PROPERTY(QVariantMap sample READ sample NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList samples READ samples NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantList assayWorkflowReadiness READ assayWorkflowReadiness NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList analysisActions READ analysisActions NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList populations READ populations NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList commands READ commands NOTIFY snapshotChanged)
@@ -42,6 +43,7 @@ public:
     QString workspacePath() const;
     QVariantMap sample() const;
     QVariantList samples() const;
+    QVariantList assayWorkflowReadiness() const;
     QVariantList analysisActions() const;
     QVariantList populations() const;
     QVariantList commands() const;
@@ -129,6 +131,7 @@ private:
     QVariantMap snapshot_;
     QVariantMap sample_;
     QVariantList samples_;
+    QVariantList assayWorkflowReadiness_;
     QVariantList analysisActions_;
     QVariantList populations_;
     QVariantList commands_;
