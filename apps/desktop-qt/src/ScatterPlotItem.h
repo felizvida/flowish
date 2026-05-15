@@ -18,6 +18,8 @@ class ScatterPlotItem : public QQuickItem {
     Q_PROPERTY(QVariantList highlightPoints READ highlightPoints WRITE setHighlightPoints NOTIFY highlightPointsChanged)
     Q_PROPERTY(QVariantMap pointColumns READ pointColumns WRITE setPointColumns NOTIFY pointColumnsChanged)
     Q_PROPERTY(QVariantMap highlightPointColumns READ highlightPointColumns WRITE setHighlightPointColumns NOTIFY highlightPointColumnsChanged)
+    Q_PROPERTY(QVariantList gateOverlays READ gateOverlays WRITE setGateOverlays NOTIFY gateOverlaysChanged)
+    Q_PROPERTY(QString selectedPopulationKey READ selectedPopulationKey WRITE setSelectedPopulationKey NOTIFY selectedPopulationKeyChanged)
     Q_PROPERTY(double xMin READ xMin WRITE setXMin NOTIFY plotRangeChanged)
     Q_PROPERTY(double xMax READ xMax WRITE setXMax NOTIFY plotRangeChanged)
     Q_PROPERTY(double yMin READ yMin WRITE setYMin NOTIFY plotRangeChanged)
@@ -31,6 +33,8 @@ public:
     QVariantList highlightPoints() const;
     QVariantMap pointColumns() const;
     QVariantMap highlightPointColumns() const;
+    QVariantList gateOverlays() const;
+    QString selectedPopulationKey() const;
     double xMin() const;
     double xMax() const;
     double yMin() const;
@@ -41,6 +45,8 @@ public:
     void setHighlightPoints(const QVariantList &points);
     void setPointColumns(const QVariantMap &columns);
     void setHighlightPointColumns(const QVariantMap &columns);
+    void setGateOverlays(const QVariantList &overlays);
+    void setSelectedPopulationKey(const QString &populationKey);
     void setXMin(double value);
     void setXMax(double value);
     void setYMin(double value);
@@ -52,6 +58,8 @@ signals:
     void highlightPointsChanged();
     void pointColumnsChanged();
     void highlightPointColumnsChanged();
+    void gateOverlaysChanged();
+    void selectedPopulationKeyChanged();
     void plotRangeChanged();
     void interactionModeChanged();
     void rectangleGateDrawn(double xMin, double xMax, double yMin, double yMax);
@@ -64,8 +72,14 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
+    struct GateOverlay {
+        QString populationId;
+        QVector<QPointF> vertices;
+    };
+
     static QVector<QPointF> toPointVector(const QVariantList &values);
     static QVector<QPointF> toPointVector(const QVariantMap &columns);
+    static QVector<GateOverlay> toGateOverlays(const QVariantList &values);
     static QVariantList toVariantList(const QVector<QPointF> &values);
     QRectF dataRect() const;
     QRectF plotRect() const;
@@ -91,8 +105,11 @@ private:
     QVariantList highlightPoints_;
     QVariantMap pointColumns_;
     QVariantMap highlightPointColumns_;
+    QVariantList gateOverlays_;
+    QString selectedPopulationKey_ = "__all__";
     QVector<QPointF> allPointBuffer_;
     QVector<QPointF> highlightPointBuffer_;
+    QVector<GateOverlay> gateOverlayBuffer_;
     double xMin_ = 0.0;
     double xMax_ = 1.0;
     double yMin_ = 0.0;

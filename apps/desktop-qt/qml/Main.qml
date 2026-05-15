@@ -1302,6 +1302,8 @@ ApplicationWindow {
                                 visible: (plotA.kind || "scatter") !== "histogram"
                                 pointColumns: plotA.point_columns || ({})
                                 highlightPointColumns: plotA.highlight_point_columns || ({})
+                                gateOverlays: plotA.gate_overlays || []
+                                selectedPopulationKey: desktopController.selectedPopulationKey
                                 xMin: plotA.x_range ? plotA.x_range.min : 0
                                 xMax: plotA.x_range ? plotA.x_range.max : 1
                                 yMin: plotA.y_range ? plotA.y_range.min : 0
@@ -1429,6 +1431,8 @@ ApplicationWindow {
                                 visible: (plotB.kind || "scatter") !== "histogram"
                                 pointColumns: plotB.point_columns || ({})
                                 highlightPointColumns: plotB.highlight_point_columns || ({})
+                                gateOverlays: plotB.gate_overlays || []
+                                selectedPopulationKey: desktopController.selectedPopulationKey
                                 xMin: plotB.x_range ? plotB.x_range.min : 0
                                 xMax: plotB.x_range ? plotB.x_range.max : 1
                                 yMin: plotB.y_range ? plotB.y_range.min : 0
@@ -1557,6 +1561,8 @@ ApplicationWindow {
                                 visible: (plotC.kind || "scatter") !== "histogram"
                                 pointColumns: plotC.point_columns || ({})
                                 highlightPointColumns: plotC.highlight_point_columns || ({})
+                                gateOverlays: plotC.gate_overlays || []
+                                selectedPopulationKey: desktopController.selectedPopulationKey
                                 xMin: plotC.x_range ? plotC.x_range.min : 0
                                 xMax: plotC.x_range ? plotC.x_range.max : 1
                                 yMin: plotC.y_range ? plotC.y_range.min : 0

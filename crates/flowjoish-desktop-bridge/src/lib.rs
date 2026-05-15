@@ -958,7 +958,13 @@ impl DesktopSession {
             ("derived_metric", self.derived_metric.to_json_value()),
             (
                 "plots",
-                plots_json(&processed_sample, &state, &plot_specs, &plot_ranges)?,
+                plots_json(
+                    &processed_sample,
+                    &state,
+                    command_log,
+                    &plot_specs,
+                    &plot_ranges,
+                )?,
             ),
             (
                 "phase0_focus",
@@ -3973,12 +3979,13 @@ fn population_stats_entry_json(stats: PopulationStats) -> JsonValue {
 fn plots_json(
     sample: &SampleFrame,
     state: &WorkspaceState,
+    command_log: &CommandLog,
     plot_specs: &[PlotSpec],
     plot_ranges: &BTreeMap<String, PlotRangeState>,
 ) -> Result<JsonValue, String> {
     let plots = plot_specs
         .into_iter()
-        .map(|plot| plot_json(sample, state, plot, plot_ranges.get(&plot.id)))
+        .map(|plot| plot_json(sample, state, command_log, plot, plot_ranges.get(&plot.id)))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(JsonValue::Array(plots))
 }
@@ -4045,6 +4052,7 @@ fn default_plot_specs(sample: &SampleFrame) -> Vec<PlotSpec> {
 fn plot_json(
     sample: &SampleFrame,
     state: &WorkspaceState,
+    command_log: &CommandLog,
     plot: &PlotSpec,
     view_range: Option<&PlotRangeState>,
 ) -> Result<JsonValue, String> {
@@ -4052,7 +4060,7 @@ fn plot_json(
     let range = view_range.unwrap_or(&auto_range);
 
     match plot.kind {
-        PlotKind::Scatter => scatter_plot_json(sample, state, plot, range),
+        PlotKind::Scatter => scatter_plot_json(sample, state, command_log, plot, range),
         PlotKind::Histogram => histogram_plot_json(sample, state, plot, range),
     }
 }
@@ -4060,6 +4068,7 @@ fn plot_json(
 fn scatter_plot_json(
     sample: &SampleFrame,
     state: &WorkspaceState,
+    command_log: &CommandLog,
     plot: &PlotSpec,
     range: &PlotRangeState,
 ) -> Result<JsonValue, String> {
@@ -4073,6 +4082,7 @@ fn scatter_plot_json(
     let y_index = sample
         .channel_index(y_channel)
         .ok_or_else(|| format!("missing channel '{}'", y_channel))?;
+    let gate_overlays = scatter_gate_overlays(command_log, &plot.x_channel, y_channel);
 
     let sampled_indices = sampled_event_indices(sample.event_count(), SCATTER_POINT_LIMIT);
     let point_columns = point_columns_json(sample, x_index, y_index, &sampled_indices);
@@ -4112,6 +4122,7 @@ fn scatter_plot_json(
             "population_event_indices",
             JsonValue::Object(population_event_indices),
         ),
+        ("gate_overlays", JsonValue::Array(gate_overlays)),
         (
             "x_range",
             JsonValue::object([
@@ -4127,6 +4138,86 @@ fn scatter_plot_json(
             ]),
         ),
     ]))
+}
+
+fn scatter_gate_overlays(
+    command_log: &CommandLog,
+    x_channel: &str,
+    y_channel: &str,
+) -> Vec<JsonValue> {
+    command_log
+        .records()
+        .iter()
+        .filter_map(|record| match &record.command {
+            Command::RectangleGate {
+                population_id,
+                parent_population,
+                x_channel: gate_x_channel,
+                y_channel: gate_y_channel,
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+                ..
+            } if gate_x_channel == x_channel && gate_y_channel == y_channel => {
+                Some(JsonValue::object([
+                    ("kind", JsonValue::String("rectangle".to_string())),
+                    ("population_id", JsonValue::String(population_id.clone())),
+                    (
+                        "parent_population",
+                        optional_string_json(parent_population.as_ref()),
+                    ),
+                    (
+                        "vertices",
+                        JsonValue::Array(vec![
+                            point_json(*x_min, *y_min),
+                            point_json(*x_max, *y_min),
+                            point_json(*x_max, *y_max),
+                            point_json(*x_min, *y_max),
+                            point_json(*x_min, *y_min),
+                        ]),
+                    ),
+                ]))
+            }
+            Command::PolygonGate {
+                population_id,
+                parent_population,
+                x_channel: gate_x_channel,
+                y_channel: gate_y_channel,
+                vertices,
+                ..
+            } if gate_x_channel == x_channel && gate_y_channel == y_channel => {
+                let mut overlay_vertices = vertices
+                    .iter()
+                    .map(|vertex| point_json(vertex.x, vertex.y))
+                    .collect::<Vec<_>>();
+                if let Some(first) = vertices.first() {
+                    overlay_vertices.push(point_json(first.x, first.y));
+                }
+
+                Some(JsonValue::object([
+                    ("kind", JsonValue::String("polygon".to_string())),
+                    ("population_id", JsonValue::String(population_id.clone())),
+                    (
+                        "parent_population",
+                        optional_string_json(parent_population.as_ref()),
+                    ),
+                    ("vertices", JsonValue::Array(overlay_vertices)),
+                ]))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn point_json(x: f64, y: f64) -> JsonValue {
+    JsonValue::object([("x", JsonValue::Number(x)), ("y", JsonValue::Number(y))])
+}
+
+fn optional_string_json(value: Option<&String>) -> JsonValue {
+    value
+        .map(|value| JsonValue::String(value.clone()))
+        .unwrap_or(JsonValue::Null)
 }
 
 fn histogram_plot_json(
@@ -5488,6 +5579,28 @@ mod tests {
             .and_then(JsonValue::as_array)
             .expect("sampled population indices");
         assert!(!sampled_population_indices.is_empty());
+        let gate_overlays = gated_plot
+            .get("gate_overlays")
+            .and_then(JsonValue::as_array)
+            .expect("gate overlays");
+        assert_eq!(gate_overlays.len(), 1);
+        assert_eq!(
+            gate_overlays[0].get("kind").and_then(JsonValue::as_str),
+            Some("rectangle")
+        );
+        assert_eq!(
+            gate_overlays[0]
+                .get("population_id")
+                .and_then(JsonValue::as_str),
+            Some("early-events")
+        );
+        assert_eq!(
+            gate_overlays[0]
+                .get("vertices")
+                .and_then(JsonValue::as_array)
+                .map(|vertices| vertices.len()),
+            Some(5)
+        );
 
         let _ = fs::remove_file(sample_path);
     }

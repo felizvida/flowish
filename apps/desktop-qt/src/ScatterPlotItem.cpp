@@ -41,6 +41,14 @@ QVariantMap ScatterPlotItem::highlightPointColumns() const {
     return highlightPointColumns_;
 }
 
+QVariantList ScatterPlotItem::gateOverlays() const {
+    return gateOverlays_;
+}
+
+QString ScatterPlotItem::selectedPopulationKey() const {
+    return selectedPopulationKey_;
+}
+
 double ScatterPlotItem::xMin() const {
     return xMin_;
 }
@@ -103,6 +111,28 @@ void ScatterPlotItem::setHighlightPointColumns(const QVariantMap &columns) {
     highlightPointBuffer_ = toPointVector(columns);
     update();
     emit highlightPointColumnsChanged();
+}
+
+void ScatterPlotItem::setGateOverlays(const QVariantList &overlays) {
+    if (overlays == gateOverlays_) {
+        return;
+    }
+
+    gateOverlays_ = overlays;
+    gateOverlayBuffer_ = toGateOverlays(overlays);
+    update();
+    emit gateOverlaysChanged();
+}
+
+void ScatterPlotItem::setSelectedPopulationKey(const QString &populationKey) {
+    const QString nextKey = populationKey.trimmed().isEmpty() ? QStringLiteral("__all__") : populationKey;
+    if (selectedPopulationKey_ == nextKey) {
+        return;
+    }
+
+    selectedPopulationKey_ = nextKey;
+    update();
+    emit selectedPopulationKeyChanged();
 }
 
 void ScatterPlotItem::setXMin(double value) {
@@ -178,6 +208,16 @@ QSGNode *ScatterPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData 
             10.0,
             bounds,
             plotArea));
+    }
+    for (const GateOverlay &overlay : gateOverlayBuffer_) {
+        if (overlay.populationId != selectedPopulationKey_) {
+            root->appendChildNode(buildPolylineNode(overlay.vertices, QColor("#6f8b8f"), bounds, plotArea));
+        }
+    }
+    for (const GateOverlay &overlay : gateOverlayBuffer_) {
+        if (overlay.populationId == selectedPopulationKey_) {
+            root->appendChildNode(buildPolylineNode(overlay.vertices, QColor("#ef8354"), bounds, plotArea));
+        }
     }
     if (dragging_) {
         const QRectF activeSelection = selectionRect();
@@ -316,6 +356,35 @@ QVector<QPointF> ScatterPlotItem::toPointVector(const QVariantMap &columns) {
         points.push_back(QPointF(xValues.at(index).toDouble(), yValues.at(index).toDouble()));
     }
     return points;
+}
+
+QVector<ScatterPlotItem::GateOverlay> ScatterPlotItem::toGateOverlays(const QVariantList &values) {
+    QVector<GateOverlay> overlays;
+    overlays.reserve(values.size());
+    for (const QVariant &value : values) {
+        const QVariantMap overlayMap = value.toMap();
+        const QVariantList vertexValues = overlayMap.value("vertices").toList();
+        QVector<QPointF> vertices;
+        vertices.reserve(vertexValues.size());
+        for (const QVariant &vertexValue : vertexValues) {
+            const QVariantMap vertexMap = vertexValue.toMap();
+            bool okX = false;
+            bool okY = false;
+            const double x = vertexMap.value("x").toDouble(&okX);
+            const double y = vertexMap.value("y").toDouble(&okY);
+            if (okX && okY && std::isfinite(x) && std::isfinite(y)) {
+                vertices.push_back(QPointF(x, y));
+            }
+        }
+
+        if (vertices.size() >= 2) {
+            overlays.push_back(GateOverlay {
+                overlayMap.value("population_id").toString(),
+                vertices,
+            });
+        }
+    }
+    return overlays;
 }
 
 QVariantList ScatterPlotItem::toVariantList(const QVector<QPointF> &values) {
