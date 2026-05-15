@@ -2920,6 +2920,7 @@ fn sample_json(
             "compensation_qc",
             compensation_qc_json(sample, compensation, analysis_profile),
         ),
+        ("assay_workflows", assay_workflows_json(sample)),
         (
             "channel_transforms",
             JsonValue::Array(
@@ -2986,6 +2987,306 @@ fn sample_json(
             ),
         ),
     ])
+}
+
+fn assay_workflows_json(sample: &SampleFrame) -> JsonValue {
+    JsonValue::Array(vec![
+        assay_workflow_from_groups(
+            "apoptosis-annexin",
+            "Apoptosis (Annexin V / 7-AAD)",
+            "Evaluate early and late apoptotic fractions with a quadrant-style Annexin V by membrane-integrity dye plot.",
+            vec![
+                (
+                    "Annexin V",
+                    find_channels_by_patterns(sample, &["annexin v", "annexinv"]),
+                ),
+                (
+                    "7-AAD or PI",
+                    find_channels_by_patterns(
+                        sample,
+                        &["7-aad", "7aad", "propidium iodide", "pi", "draq7"],
+                    ),
+                ),
+            ],
+            vec![
+                "Plot Annexin V against 7-AAD/PI after the main cell gate.",
+                "Use quadrant gates for viable, early apoptotic, late apoptotic, and necrotic fractions.",
+                "Export frequencies for each quadrant across treatment groups.",
+            ],
+            vec![
+                "Annexin V vs 7-AAD/PI scatter",
+                "Quadrant frequencies by treatment",
+            ],
+        ),
+        assay_workflow_from_groups(
+            "cell-cycle",
+            "Cell Cycle / DNA Content",
+            "Quantify DNA-content distributions for G0/G1, S, and G2/M style cell-cycle review.",
+            vec![(
+                "DNA dye",
+                find_channels_by_patterns(
+                    sample,
+                    &[
+                        "pi",
+                        "propidium iodide",
+                        "dapi",
+                        "7-aad",
+                        "7aad",
+                        "hoechst",
+                        "draq5",
+                        "dna",
+                    ],
+                ),
+            )],
+            vec![
+                "Start with singlet and debris-exclusion gates.",
+                "Review the DNA dye as a histogram before fitting phase gates.",
+                "Batch-export count and frequency statistics for each phase gate.",
+            ],
+            vec!["DNA-content histogram", "Phase gate frequencies"],
+        ),
+        assay_workflow_from_groups(
+            "dna-damage-h2ax",
+            "DNA Damage (gamma-H2AX)",
+            "Track DNA-damage response by gamma-H2AX positivity or median signal intensity.",
+            vec![(
+                "gamma-H2AX",
+                find_channels_by_patterns(sample, &["gamma h2ax", "gammah2ax", "ph2ax", "h2ax"]),
+            )],
+            vec![
+                "Gate the relevant cells first, then inspect gamma-H2AX signal.",
+                "Use positive fraction for thresholded response or median signal for intensity shifts.",
+                "Compare dose, time point, or genotype groups with cohort summaries.",
+            ],
+            vec![
+                "gamma-H2AX histogram",
+                "Positive fraction or median intensity",
+            ],
+        ),
+        assay_workflow_from_groups(
+            "mitochondrial-potential",
+            "Mitochondrial Potential (TMRE/TMRM)",
+            "Measure mitochondrial membrane potential shifts from potentiometric dye signal.",
+            vec![(
+                "TMRE/TMRM",
+                find_channels_by_patterns(sample, &["tmre", "tmrm", "mitotracker"]),
+            )],
+            vec![
+                "Gate intact cells before reviewing mitochondrial dye signal.",
+                "Use median signal for bioenergetic shifts or positive fraction for responder calls.",
+                "Compare control and disease/treatment groups with exported summaries.",
+            ],
+            vec!["TMRE/TMRM histogram", "Median signal by group"],
+        ),
+        assay_workflow_from_groups(
+            "viral-infection",
+            "Viral Infection Rate",
+            "Quantify infected-cell fractions from viral nucleocapsid or related antigen staining.",
+            vec![(
+                "Viral antigen",
+                find_channels_by_patterns(
+                    sample,
+                    &[
+                        "nucleocapsid",
+                        "n protein",
+                        "nprotein",
+                        "viral n",
+                        "sars cov 2 n",
+                    ],
+                ),
+            )],
+            vec![
+                "Gate target cells, then threshold viral antigen positivity.",
+                "Export positive fractions across infection conditions or time points.",
+                "Check compensation and transform settings before comparing batches.",
+            ],
+            vec!["Viral antigen histogram", "Positive fraction by condition"],
+        ),
+        immunophenotyping_workflow_json(sample),
+        assay_workflow_from_groups(
+            "reporter-enrichment",
+            "Reporter / Edited-Cell Enrichment",
+            "Find fluorescent reporter-positive populations for CRISPR, knock-in, or enrichment workflows.",
+            vec![(
+                "Reporter channel",
+                find_channels_by_patterns(
+                    sample,
+                    &["gfp", "bfp", "rfp", "yfp", "mcherry", "tdtomato"],
+                ),
+            )],
+            vec![
+                "Gate viable/singlet cells before reporter positivity.",
+                "Use positive fraction for edit/enrichment rate and median signal for expression shifts.",
+                "Apply the same gate template across validation samples.",
+            ],
+            vec!["Reporter histogram", "Reporter-positive fraction"],
+        ),
+    ])
+}
+
+fn assay_workflow_from_groups(
+    id: &str,
+    name: &str,
+    summary: &str,
+    required_groups: Vec<(&str, Vec<String>)>,
+    suggested_steps: Vec<&str>,
+    recommended_outputs: Vec<&str>,
+) -> JsonValue {
+    let matched_channels = required_groups
+        .iter()
+        .flat_map(|(_, channels)| channels.iter().cloned())
+        .collect::<Vec<_>>();
+    let missing_markers = required_groups
+        .iter()
+        .filter(|(_, channels)| channels.is_empty())
+        .map(|(label, _)| (*label).to_string())
+        .collect::<Vec<_>>();
+    let status = workflow_status(!matched_channels.is_empty(), missing_markers.is_empty());
+
+    assay_workflow_json(
+        id,
+        name,
+        status,
+        summary,
+        matched_channels,
+        missing_markers,
+        suggested_steps,
+        recommended_outputs,
+    )
+}
+
+fn immunophenotyping_workflow_json(sample: &SampleFrame) -> JsonValue {
+    let matched_channels = find_channels_by_patterns(
+        sample,
+        &[
+            "cd3", "cd4", "cd8", "cd19", "cd14", "cd16", "cd45", "cd56", "cd11b", "f4/80", "f480",
+            "ly6g", "ly6c",
+        ],
+    );
+    let missing_markers = if matched_channels.len() >= 2 {
+        Vec::new()
+    } else {
+        vec!["At least two lineage or phenotype markers".to_string()]
+    };
+    let status = workflow_status(!matched_channels.is_empty(), missing_markers.is_empty());
+
+    assay_workflow_json(
+        "immunophenotyping",
+        "Immunophenotyping",
+        status,
+        "Gate immune-cell populations and compare marker expression or population frequencies across samples.",
+        matched_channels,
+        missing_markers,
+        vec![
+            "Begin with FSC/SSC and singlet cleanup gates.",
+            "Build marker gates from broad lineage markers into focused subsets.",
+            "Use batch comparison and cohort summaries for treatment, tissue, or genotype groups.",
+        ],
+        vec![
+            "Marker scatter plots",
+            "Population frequencies",
+            "Median marker intensity",
+        ],
+    )
+}
+
+fn assay_workflow_json(
+    id: &str,
+    name: &str,
+    status: &str,
+    summary: &str,
+    matched_channels: Vec<String>,
+    missing_markers: Vec<String>,
+    suggested_steps: Vec<&str>,
+    recommended_outputs: Vec<&str>,
+) -> JsonValue {
+    JsonValue::object([
+        ("id", JsonValue::String(id.to_string())),
+        ("name", JsonValue::String(name.to_string())),
+        ("status", JsonValue::String(status.to_string())),
+        ("summary", JsonValue::String(summary.to_string())),
+        ("matched_channels", string_values_json(matched_channels)),
+        ("missing_markers", string_values_json(missing_markers)),
+        (
+            "suggested_steps",
+            string_values_json(suggested_steps.into_iter().map(str::to_string).collect()),
+        ),
+        (
+            "recommended_outputs",
+            string_values_json(
+                recommended_outputs
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+fn workflow_status(has_any_match: bool, has_all_required: bool) -> &'static str {
+    if has_all_required {
+        "compatible"
+    } else if has_any_match {
+        "partial"
+    } else {
+        "missing"
+    }
+}
+
+fn find_channels_by_patterns(sample: &SampleFrame, patterns: &[&str]) -> Vec<String> {
+    let mut matches = Vec::new();
+    for channel in sample.channels() {
+        if patterns
+            .iter()
+            .any(|pattern| channel_matches_pattern(channel, pattern))
+            && !matches.iter().any(|matched| matched == channel)
+        {
+            matches.push(channel.clone());
+        }
+    }
+    matches
+}
+
+fn channel_matches_pattern(channel: &str, pattern: &str) -> bool {
+    let pattern = normalize_marker(pattern);
+    if pattern.is_empty() {
+        return false;
+    }
+    let compact = normalize_marker(channel);
+    if pattern.starts_with("cd") && pattern[2..].chars().all(|ch| ch.is_ascii_digit()) {
+        if compact == pattern {
+            return true;
+        }
+        if compact.starts_with(&pattern) {
+            return compact
+                .chars()
+                .nth(pattern.len())
+                .is_some_and(|next| !next.is_ascii_digit());
+        }
+        return marker_tokens(channel).iter().any(|token| token == &pattern);
+    }
+
+    compact.contains(&pattern)
+}
+
+fn normalize_marker(value: &str) -> String {
+    let mut output = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\u{03b3}' | '\u{0393}' => output.push_str("gamma"),
+            _ if ch.is_ascii_alphanumeric() => output.push(ch.to_ascii_lowercase()),
+            _ => {}
+        }
+    }
+    output
+}
+
+fn marker_tokens(value: &str) -> Vec<String> {
+    value
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .map(normalize_marker)
+        .filter(|token| !token.is_empty())
+        .collect()
 }
 
 fn compensation_qc_json(
@@ -5700,6 +6001,71 @@ mod tests {
             qc.get("warnings")
                 .and_then(JsonValue::as_array)
                 .is_some_and(|warnings| !warnings.is_empty())
+        );
+
+        let _ = fs::remove_file(sample_path);
+    }
+
+    #[test]
+    fn assay_workflows_are_derived_from_sample_channels() {
+        let sample_path = write_temp_test_fcs(
+            "assay-workflow-sample",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "Annexin V", "7-AAD", "CD3", "CD4", "TMRE"],
+                vec![vec![10.0, 12.0, 1.0, 0.2, 8.0, 7.0, 120.0]],
+                None,
+            ),
+        );
+
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![JsonValue::String(
+            sample_path.to_string_lossy().to_string(),
+        )])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        let workflows = imported
+            .get("sample")
+            .and_then(|sample| sample.get("assay_workflows"))
+            .and_then(JsonValue::as_array)
+            .expect("assay workflows");
+
+        let apoptosis = workflows
+            .iter()
+            .find(|workflow| {
+                workflow.get("id").and_then(JsonValue::as_str) == Some("apoptosis-annexin")
+            })
+            .expect("apoptosis workflow");
+        assert_eq!(
+            apoptosis.get("status").and_then(JsonValue::as_str),
+            Some("compatible")
+        );
+        assert!(
+            apoptosis
+                .get("matched_channels")
+                .and_then(JsonValue::as_array)
+                .is_some_and(|channels| channels.len() == 2)
+        );
+
+        let immunophenotyping = workflows
+            .iter()
+            .find(|workflow| {
+                workflow.get("id").and_then(JsonValue::as_str) == Some("immunophenotyping")
+            })
+            .expect("immunophenotyping workflow");
+        assert_eq!(
+            immunophenotyping.get("status").and_then(JsonValue::as_str),
+            Some("compatible")
+        );
+
+        let dna_damage = workflows
+            .iter()
+            .find(|workflow| {
+                workflow.get("id").and_then(JsonValue::as_str) == Some("dna-damage-h2ax")
+            })
+            .expect("dna damage workflow");
+        assert_eq!(
+            dna_damage.get("status").and_then(JsonValue::as_str),
+            Some("missing")
         );
 
         let _ = fs::remove_file(sample_path);

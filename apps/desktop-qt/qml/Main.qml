@@ -452,6 +452,105 @@ ApplicationWindow {
                             spacing: 10
 
                             Text {
+                                text: "Assay Workflows"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: "Channel-aware workflow suggestions are advisory only. Nothing runs until you draw gates, apply presets, or export results."
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Repeater {
+                                model: desktopController.sample.assay_workflows || []
+
+                                delegate: Rectangle {
+                                    id: assayWorkflowCard
+                                    width: parent.width
+                                    height: assayWorkflowColumn.implicitHeight + 20
+                                    radius: 14
+                                    property string workflowStatus: modelData.status || "missing"
+                                    color: workflowStatus === "compatible" ? "#e7f0eb"
+                                          : workflowStatus === "partial" ? "#f6efe1" : "#f7ede8"
+                                    border.width: 1
+                                    border.color: workflowStatus === "compatible" ? "#9fbea9"
+                                                  : workflowStatus === "partial" ? "#d3c2a0" : "#d49b82"
+
+                                    Column {
+                                        id: assayWorkflowColumn
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        spacing: 5
+
+                                        Text {
+                                            width: parent.width
+                                            text: modelData.name + "  •  "
+                                                  + (assayWorkflowCard.workflowStatus === "compatible" ? "Compatible"
+                                                     : assayWorkflowCard.workflowStatus === "partial" ? "Partial match"
+                                                     : "Missing markers")
+                                            color: "#2e2216"
+                                            font.pixelSize: 14
+                                            font.weight: Font.DemiBold
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: modelData.summary || ""
+                                            color: "#6d5941"
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            visible: (modelData.matched_channels || []).length > 0
+                                            text: "Matched: " + (modelData.matched_channels || []).join(", ")
+                                            color: "#4f695c"
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            visible: (modelData.missing_markers || []).length > 0
+                                            text: "Missing: " + (modelData.missing_markers || []).join(", ")
+                                            color: "#8b4f3d"
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            visible: (modelData.suggested_steps || []).length > 0
+                                            text: "Next: " + (modelData.suggested_steps || [])[0]
+                                            color: "#6d5941"
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: "Outputs: " + (modelData.recommended_outputs || []).join(" • ")
+                                            color: "#6d5941"
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 10
+
+                            Text {
                                 text: "Derived Metric"
                                 color: "#2e2216"
                                 font.pixelSize: 22
