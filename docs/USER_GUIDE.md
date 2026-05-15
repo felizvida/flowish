@@ -108,6 +108,7 @@ How it behaves today:
 - the histogram responds to `Auto`, `Focus`, `Zoom In`, and `Zoom Out` like the scatter plots
 - dragging horizontally across the histogram creates a replayable one-channel `range_gate`
 - `High Gate` creates the same command type from the midpoint of the current histogram view to the visible maximum
+- committed histogram range gates appear as translucent overlays, with the selected population emphasized
 - histogram panels do not yet support editable threshold handles
 
 Parallax currently chooses the histogram channel automatically, preferring a non-time, non-structural analysis channel such as a fluorescence marker when available.

@@ -1645,6 +1645,8 @@ ApplicationWindow {
                                 visible: (plotA.kind || "") === "histogram"
                                 allBins: plotA.all_bins || []
                                 highlightBins: plotA.highlight_bins || []
+                                rangeOverlays: plotA.range_overlays || []
+                                selectedPopulationKey: desktopController.selectedPopulationKey
                                 xMin: plotA.x_range ? plotA.x_range.min : 0
                                 xMax: plotA.x_range ? plotA.x_range.max : 1
                                 yMin: plotA.y_range ? plotA.y_range.min : 0
@@ -1793,6 +1795,8 @@ ApplicationWindow {
                                 visible: (plotB.kind || "") === "histogram"
                                 allBins: plotB.all_bins || []
                                 highlightBins: plotB.highlight_bins || []
+                                rangeOverlays: plotB.range_overlays || []
+                                selectedPopulationKey: desktopController.selectedPopulationKey
                                 xMin: plotB.x_range ? plotB.x_range.min : 0
                                 xMax: plotB.x_range ? plotB.x_range.max : 1
                                 yMin: plotB.y_range ? plotB.y_range.min : 0
@@ -1942,6 +1946,8 @@ ApplicationWindow {
                                 visible: (plotC.kind || "") === "histogram"
                                 allBins: plotC.all_bins || []
                                 highlightBins: plotC.highlight_bins || []
+                                rangeOverlays: plotC.range_overlays || []
+                                selectedPopulationKey: desktopController.selectedPopulationKey
                                 xMin: plotC.x_range ? plotC.x_range.min : 0
                                 xMax: plotC.x_range ? plotC.x_range.max : 1
                                 yMin: plotC.y_range ? plotC.y_range.min : 0

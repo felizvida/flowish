@@ -32,6 +32,14 @@ QVariantList HistogramPlotItem::highlightBins() const {
     return highlightBins_;
 }
 
+QVariantList HistogramPlotItem::rangeOverlays() const {
+    return rangeOverlays_;
+}
+
+QString HistogramPlotItem::selectedPopulationKey() const {
+    return selectedPopulationKey_;
+}
+
 double HistogramPlotItem::xMin() const {
     return xMin_;
 }
@@ -68,6 +76,28 @@ void HistogramPlotItem::setHighlightBins(const QVariantList &bins) {
     highlightBinBuffer_ = toBinRects(bins);
     update();
     emit highlightBinsChanged();
+}
+
+void HistogramPlotItem::setRangeOverlays(const QVariantList &overlays) {
+    if (overlays == rangeOverlays_) {
+        return;
+    }
+
+    rangeOverlays_ = overlays;
+    rangeOverlayBuffer_ = toRangeOverlays(overlays);
+    update();
+    emit rangeOverlaysChanged();
+}
+
+void HistogramPlotItem::setSelectedPopulationKey(const QString &populationKey) {
+    const QString nextKey = populationKey.trimmed().isEmpty() ? QStringLiteral("__all__") : populationKey;
+    if (selectedPopulationKey_ == nextKey) {
+        return;
+    }
+
+    selectedPopulationKey_ = nextKey;
+    update();
+    emit selectedPopulationKeyChanged();
 }
 
 void HistogramPlotItem::setXMin(double value) {
@@ -124,12 +154,26 @@ QSGNode *HistogramPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
     const QRectF bounds = dataRect();
     const QRectF plotArea = plotRect();
     root->appendChildNode(buildBarsNode(allBinBuffer_, QColor("#365b63"), bounds, plotArea));
+    for (const RangeOverlay &overlay : rangeOverlayBuffer_) {
+        if (overlay.populationId != selectedPopulationKey_) {
+            QColor color("#6f8b8f");
+            color.setAlphaF(0.16);
+            root->appendChildNode(buildRangeOverlayNode(overlay, color, bounds, plotArea));
+        }
+    }
     if (!highlightBinBuffer_.isEmpty()) {
         root->appendChildNode(buildBarsNode(
             highlightBinBuffer_,
             QColor("#ef8354"),
             bounds,
             plotArea));
+    }
+    for (const RangeOverlay &overlay : rangeOverlayBuffer_) {
+        if (overlay.populationId == selectedPopulationKey_) {
+            QColor color("#ef8354");
+            color.setAlphaF(0.24);
+            root->appendChildNode(buildRangeOverlayNode(overlay, color, bounds, plotArea));
+        }
     }
     if (dragging_) {
         const QRectF activeSelection = selectionRect();
@@ -204,6 +248,28 @@ QVector<QRectF> HistogramPlotItem::toBinRects(const QVariantList &values) {
     return bins;
 }
 
+QVector<HistogramPlotItem::RangeOverlay> HistogramPlotItem::toRangeOverlays(const QVariantList &values) {
+    QVector<RangeOverlay> overlays;
+    overlays.reserve(values.size());
+    for (const QVariant &value : values) {
+        const QVariantMap map = value.toMap();
+        bool okMin = false;
+        bool okMax = false;
+        const double min = map.value("min").toDouble(&okMin);
+        const double max = map.value("max").toDouble(&okMax);
+        if (!okMin || !okMax || !std::isfinite(min) || !std::isfinite(max) || sameRange(min, max)) {
+            continue;
+        }
+
+        overlays.push_back(RangeOverlay {
+            map.value("population_id").toString(),
+            qMin(min, max),
+            qMax(min, max),
+        });
+    }
+    return overlays;
+}
+
 QRectF HistogramPlotItem::dataRect() const {
     double left = xMin_;
     double right = xMax_;
@@ -266,6 +332,14 @@ QRectF HistogramPlotItem::mapBinToPlot(
 }
 
 QSGGeometryNode *HistogramPlotItem::buildSelectionNode(const QRectF &selectionRect) const {
+    QColor selectionFill("#ef8354");
+    selectionFill.setAlphaF(0.24);
+    return buildSelectionNode(selectionRect, selectionFill);
+}
+
+QSGGeometryNode *HistogramPlotItem::buildSelectionNode(
+    const QRectF &selectionRect,
+    const QColor &color) const {
     auto *geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), 6);
     geometry->setDrawingMode(QSGGeometry::DrawTriangles);
     auto *vertices = geometry->vertexDataAsPoint2D();
@@ -282,11 +356,8 @@ QSGGeometryNode *HistogramPlotItem::buildSelectionNode(const QRectF &selectionRe
     vertices[4].set(right, top);
     vertices[5].set(right, bottom);
 
-    QColor selectionFill("#ef8354");
-    selectionFill.setAlphaF(0.24);
-
     auto *material = new QSGFlatColorMaterial();
-    material->setColor(selectionFill);
+    material->setColor(color);
 
     auto *node = new QSGGeometryNode();
     node->setGeometry(geometry);
@@ -294,6 +365,24 @@ QSGGeometryNode *HistogramPlotItem::buildSelectionNode(const QRectF &selectionRe
     node->setFlag(QSGNode::OwnsGeometry, true);
     node->setFlag(QSGNode::OwnsMaterial, true);
     return node;
+}
+
+QSGGeometryNode *HistogramPlotItem::buildRangeOverlayNode(
+    const RangeOverlay &overlay,
+    const QColor &color,
+    const QRectF &bounds,
+    const QRectF &plotArea) const {
+    const qreal xNormStart = (overlay.min - bounds.left()) / bounds.width();
+    const qreal xNormEnd = (overlay.max - bounds.left()) / bounds.width();
+    const qreal rawLeft = plotArea.left() + (xNormStart * plotArea.width());
+    const qreal rawRight = plotArea.left() + (xNormEnd * plotArea.width());
+    const qreal left = qBound(plotArea.left(), qMin(rawLeft, rawRight), plotArea.right());
+    const qreal right = qBound(plotArea.left(), qMax(rawLeft, rawRight), plotArea.right());
+    QRectF mapped(QPointF(left, plotArea.top()), QPointF(right, plotArea.bottom()));
+    if (mapped.width() < 1.0) {
+        mapped.setWidth(1.0);
+    }
+    return buildSelectionNode(mapped.normalized(), color);
 }
 
 QSGGeometryNode *HistogramPlotItem::buildBarsNode(

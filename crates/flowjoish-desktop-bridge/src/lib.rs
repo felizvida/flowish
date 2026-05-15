@@ -4980,7 +4980,7 @@ fn plot_json(
 
     match plot.kind {
         PlotKind::Scatter => scatter_plot_json(sample, state, command_log, plot, range),
-        PlotKind::Histogram => histogram_plot_json(sample, state, plot, range),
+        PlotKind::Histogram => histogram_plot_json(sample, state, command_log, plot, range),
     }
 }
 
@@ -5263,6 +5263,7 @@ fn optional_string_json(value: Option<&String>) -> JsonValue {
 fn histogram_plot_json(
     sample: &SampleFrame,
     state: &WorkspaceState,
+    command_log: &CommandLog,
     plot: &PlotSpec,
     range: &PlotRangeState,
 ) -> Result<JsonValue, String> {
@@ -5303,6 +5304,10 @@ fn histogram_plot_json(
         ("all_bins", JsonValue::Array(all_bins)),
         ("population_bins", JsonValue::Object(population_bins)),
         (
+            "range_overlays",
+            JsonValue::Array(histogram_range_overlays(command_log, &plot.x_channel)),
+        ),
+        (
             "x_range",
             JsonValue::object([
                 ("min", JsonValue::Number(range.x_min)),
@@ -5317,6 +5322,33 @@ fn histogram_plot_json(
             ]),
         ),
     ]))
+}
+
+fn histogram_range_overlays(command_log: &CommandLog, channel: &str) -> Vec<JsonValue> {
+    command_log
+        .records()
+        .iter()
+        .filter_map(|record| match &record.command {
+            Command::RangeGate {
+                population_id,
+                parent_population,
+                channel: gate_channel,
+                min,
+                max,
+                ..
+            } if gate_channel == channel => Some(JsonValue::object([
+                ("kind", JsonValue::String("range".to_string())),
+                ("population_id", JsonValue::String(population_id.clone())),
+                (
+                    "parent_population",
+                    optional_string_json(parent_population.as_ref()),
+                ),
+                ("min", JsonValue::Number(*min)),
+                ("max", JsonValue::Number(*max)),
+            ])),
+            _ => None,
+        })
+        .collect()
 }
 
 fn auto_plot_range(sample: &SampleFrame, plot: &PlotSpec) -> Result<PlotRangeState, String> {
@@ -6093,6 +6125,27 @@ mod tests {
                 .and_then(JsonValue::as_array)
                 .is_some(),
             "histogram should expose bins for the range-gated population"
+        );
+        let overlays = histogram
+            .get("range_overlays")
+            .and_then(JsonValue::as_array)
+            .expect("range overlays");
+        assert_eq!(overlays.len(), 1);
+        assert_eq!(
+            overlays[0].get("kind").and_then(JsonValue::as_str),
+            Some("range")
+        );
+        assert_eq!(
+            overlays[0].get("population_id").and_then(JsonValue::as_str),
+            Some("cd3_high")
+        );
+        assert_eq!(
+            overlays[0].get("min").and_then(JsonValue::as_f64),
+            Some(5.0)
+        );
+        assert_eq!(
+            overlays[0].get("max").and_then(JsonValue::as_f64),
+            Some(9.0)
         );
     }
 
