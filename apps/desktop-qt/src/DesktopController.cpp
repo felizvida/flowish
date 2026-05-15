@@ -944,20 +944,31 @@ bool DesktopController::createQuadrantGatesForPlot(const QString &plotId) {
         QJsonDocument(command).toJson(QJsonDocument::Compact)));
 }
 
+bool DesktopController::createHistogramLowGateForPlot(const QString &plotId) {
+    return createHistogramHalfRangeGateForPlot(plotId, false);
+}
+
 bool DesktopController::createHistogramHighGateForPlot(const QString &plotId) {
+    return createHistogramHalfRangeGateForPlot(plotId, true);
+}
+
+bool DesktopController::createHistogramHalfRangeGateForPlot(
+    const QString &plotId,
+    bool high) {
     const QVariantMap plot = plotDefinition(plotId);
+    const QString gateLabel = high ? QStringLiteral("High gates") : QStringLiteral("Low gates");
     if (plot.isEmpty()) {
         setLastError(QStringLiteral("Unknown plot '%1'").arg(plotId));
         return false;
     }
     if (plot.value("kind").toString() != QStringLiteral("histogram")) {
-        setLastError("High gates require a histogram plot");
+        setLastError(QStringLiteral("%1 require a histogram plot").arg(gateLabel));
         return false;
     }
 
     const QString channel = plot.value("x_channel").toString();
     if (channel.trimmed().isEmpty()) {
-        setLastError("High gates require a named histogram channel");
+        setLastError(QStringLiteral("%1 require a named histogram channel").arg(gateLabel));
         return false;
     }
 
@@ -965,15 +976,17 @@ bool DesktopController::createHistogramHighGateForPlot(const QString &plotId) {
     const double xMin = qMin(xRange.value("min").toDouble(), xRange.value("max").toDouble());
     const double xMax = qMax(xRange.value("min").toDouble(), xRange.value("max").toDouble());
     if (!std::isfinite(xMin) || !std::isfinite(xMax) || qFuzzyIsNull(xMax - xMin)) {
-        setLastError("High gates require a finite, non-degenerate histogram range");
+        setLastError(
+            QStringLiteral("%1 require a finite, non-degenerate histogram range").arg(gateLabel));
         return false;
     }
 
+    const double midpoint = xMin + ((xMax - xMin) / 2.0);
     return commitHistogramRangeGateForPlot(
         plotId,
-        xMin + ((xMax - xMin) / 2.0),
-        xMax,
-        QStringLiteral("_high"));
+        high ? midpoint : xMin,
+        high ? xMax : midpoint,
+        high ? QStringLiteral("_high") : QStringLiteral("_low"));
 }
 
 bool DesktopController::createHistogramRangeGateForPlot(

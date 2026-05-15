@@ -102,7 +102,7 @@ This is the important Parallax idea: your analysis is represented as an ordered,
 
 ## Step 6. Create A Histogram Range Gate
 
-Drag horizontally across the histogram panel to define a one-channel range. For a quick marker-positive shortcut, you can also click the histogram panel's `High Gate` button.
+Drag horizontally across the histogram panel to define a one-channel range. For quick midpoint shortcuts, click `Low Gate` for the visible low half or `High Gate` for the visible high half.
 
 Expected result:
 
@@ -110,7 +110,7 @@ Expected result:
 - the command log gains one `range_gate`
 - the histogram highlights the bins that fall in the gated range
 
-For `High Gate`, Parallax uses the midpoint of the visible histogram x-range as the lower threshold. Use `Zoom In`, `Zoom Out`, or `Auto` first if you want to change the visible range before using that shortcut.
+For `Low Gate`, Parallax uses the visible minimum through the midpoint. For `High Gate`, it uses the midpoint through the visible maximum. Use `Zoom In`, `Zoom Out`, or `Auto` first if you want to change the visible range before using either shortcut.
 
 ## Step 7. Apply A Transform Preset
 

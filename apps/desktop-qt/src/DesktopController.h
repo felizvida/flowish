@@ -108,6 +108,7 @@ public:
         const QString &plotId,
         double min,
         double max);
+    Q_INVOKABLE bool createHistogramLowGateForPlot(const QString &plotId);
     Q_INVOKABLE bool createHistogramHighGateForPlot(const QString &plotId);
 
 signals:
@@ -138,6 +139,9 @@ private:
         double min,
         double max,
         const QString &populationSuffix);
+    bool createHistogramHalfRangeGateForPlot(
+        const QString &plotId,
+        bool high);
     static QString sanitizePopulationSegment(const QString &value);
 
     void *session_ = nullptr;
