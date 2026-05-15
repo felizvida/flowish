@@ -181,6 +181,10 @@ QVariantList DesktopController::assayWorkflowReadiness() const {
     return assayWorkflowReadiness_;
 }
 
+QVariantMap DesktopController::gateTemplateReadiness() const {
+    return gateTemplateReadiness_;
+}
+
 QVariantList DesktopController::analysisActions() const {
     return analysisActions_;
 }
@@ -935,6 +939,7 @@ void DesktopController::rebuildDerivedState() {
     sample_ = snapshot_.value("sample").toMap();
     samples_ = snapshot_.value("samples").toList();
     assayWorkflowReadiness_ = snapshot_.value("assay_workflow_readiness").toList();
+    gateTemplateReadiness_ = snapshot_.value("gate_template_readiness").toMap();
     analysisActions_ = snapshot_.value("analysis_actions").toList();
     commandCount_ = snapshot_.value("command_count").toInt();
     canUndo_ = snapshot_.value("can_undo").toBool();

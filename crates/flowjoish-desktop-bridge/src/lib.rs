@@ -932,6 +932,10 @@ impl DesktopSession {
                 ),
             ),
             (
+                "gate_template_readiness",
+                self.gate_template_readiness_json()?,
+            ),
+            (
                 "sample",
                 sample_json(
                     sample,
@@ -1914,6 +1918,181 @@ impl DesktopSession {
             next_log.append(record.command.with_sample_id(target_sample_id.to_string()));
         }
         Ok(next_log)
+    }
+
+    fn gate_template_readiness_json(&self) -> Result<JsonValue, String> {
+        let source_sample_id = self.sample_id.clone();
+        let source_log = self.command_log_for_sample(&source_sample_id)?;
+        let source_info = self
+            .sample_info
+            .get(&source_sample_id)
+            .ok_or_else(|| format!("missing sample info '{}'", source_sample_id))?;
+        let target_sample_count = self
+            .sample_order
+            .iter()
+            .filter(|sample_id| sample_id.as_str() != source_sample_id)
+            .count();
+
+        if self.sample_order.len() < 2 {
+            return Ok(JsonValue::object([
+                ("status", JsonValue::String("single_sample".to_string())),
+                (
+                    "message",
+                    JsonValue::String(
+                        "Load at least two samples to preview gate-template readiness.".to_string(),
+                    ),
+                ),
+                ("source_sample_id", JsonValue::String(source_sample_id)),
+                (
+                    "source_display_name",
+                    JsonValue::String(source_info.display_name.clone()),
+                ),
+                (
+                    "command_count",
+                    JsonValue::Number(source_log.records().len() as f64),
+                ),
+                (
+                    "target_sample_count",
+                    JsonValue::Number(target_sample_count as f64),
+                ),
+                ("compatible_target_count", JsonValue::Number(0.0)),
+                ("incompatible_target_count", JsonValue::Number(0.0)),
+                ("samples", JsonValue::Array(Vec::new())),
+            ]));
+        }
+
+        if source_log.is_empty() {
+            return Ok(JsonValue::object([
+                ("status", JsonValue::String("empty".to_string())),
+                (
+                    "message",
+                    JsonValue::String(
+                        "Draw at least one gate on the active sample before applying a template."
+                            .to_string(),
+                    ),
+                ),
+                ("source_sample_id", JsonValue::String(source_sample_id)),
+                (
+                    "source_display_name",
+                    JsonValue::String(source_info.display_name.clone()),
+                ),
+                ("command_count", JsonValue::Number(0.0)),
+                (
+                    "target_sample_count",
+                    JsonValue::Number(target_sample_count as f64),
+                ),
+                ("compatible_target_count", JsonValue::Number(0.0)),
+                (
+                    "incompatible_target_count",
+                    JsonValue::Number(target_sample_count as f64),
+                ),
+                ("samples", JsonValue::Array(Vec::new())),
+            ]));
+        }
+
+        let mut compatible_target_count = 0usize;
+        let mut incompatible_target_count = 0usize;
+        let mut rows = Vec::new();
+        for target_sample_id in self
+            .sample_order
+            .iter()
+            .filter(|sample_id| sample_id.as_str() != source_sample_id)
+        {
+            let target_info = self
+                .sample_info
+                .get(target_sample_id)
+                .ok_or_else(|| format!("missing sample info '{}'", target_sample_id))?;
+            let status_message = match self
+                .template_log_for_target(&source_sample_id, target_sample_id)
+            {
+                Ok(next_log) => match self.processed_environment_for_sample(target_sample_id) {
+                    Ok((_, _, _, replay_environment)) => match next_log.replay(&replay_environment)
+                    {
+                        Ok(_) => {
+                            compatible_target_count += 1;
+                            (
+                                "compatible".to_string(),
+                                "Template can replay on this sample.".to_string(),
+                            )
+                        }
+                        Err(error) => {
+                            incompatible_target_count += 1;
+                            (
+                                "incompatible".to_string(),
+                                format!("Template replay failed: {error}"),
+                            )
+                        }
+                    },
+                    Err(message) => {
+                        incompatible_target_count += 1;
+                        (
+                            "incompatible".to_string(),
+                            format!("Sample preprocessing failed: {message}"),
+                        )
+                    }
+                },
+                Err(message) => {
+                    incompatible_target_count += 1;
+                    ("incompatible".to_string(), message)
+                }
+            };
+
+            rows.push(JsonValue::object([
+                ("sample_id", JsonValue::String(target_sample_id.clone())),
+                (
+                    "display_name",
+                    JsonValue::String(target_info.display_name.clone()),
+                ),
+                (
+                    "group_label",
+                    JsonValue::String(target_info.group_label.clone()),
+                ),
+                ("status", JsonValue::String(status_message.0)),
+                ("message", JsonValue::String(status_message.1)),
+            ]));
+        }
+
+        let status = if compatible_target_count == target_sample_count {
+            "ready"
+        } else if compatible_target_count > 0 {
+            "partial"
+        } else {
+            "blocked"
+        };
+        let message = match status {
+            "ready" => "The active gate template can replay on every other loaded sample.",
+            "partial" => {
+                "Only some target samples can accept the active gate template. Review mismatches before applying."
+            }
+            _ => "The active gate template cannot replay on the currently loaded target samples.",
+        };
+
+        Ok(JsonValue::object([
+            ("status", JsonValue::String(status.to_string())),
+            ("message", JsonValue::String(message.to_string())),
+            ("source_sample_id", JsonValue::String(source_sample_id)),
+            (
+                "source_display_name",
+                JsonValue::String(source_info.display_name.clone()),
+            ),
+            (
+                "command_count",
+                JsonValue::Number(source_log.records().len() as f64),
+            ),
+            (
+                "target_sample_count",
+                JsonValue::Number(target_sample_count as f64),
+            ),
+            (
+                "compatible_target_count",
+                JsonValue::Number(compatible_target_count as f64),
+            ),
+            (
+                "incompatible_target_count",
+                JsonValue::Number(incompatible_target_count as f64),
+            ),
+            ("samples", JsonValue::Array(rows)),
+        ]))
     }
 
     fn workspace_document_json(&self) -> Result<JsonValue, String> {
@@ -6978,7 +7157,20 @@ mod tests {
             ("y_max", JsonValue::Number(30.0)),
         ])
         .stringify_canonical();
-        let _ = session.dispatch_json(&gate);
+        let gated = session.dispatch_json(&gate);
+        let readiness = gated
+            .get("gate_template_readiness")
+            .expect("gate template readiness");
+        assert_eq!(
+            readiness.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(
+            readiness
+                .get("compatible_target_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
 
         let applied = session.apply_active_template_to_other_samples();
         assert_eq!(
@@ -6998,6 +7190,87 @@ mod tests {
                 .get("population_stats")
                 .and_then(|value| value.get("lymphocytes"))
                 .is_some()
+        );
+
+        let _ = fs::remove_file(alpha_path);
+        let _ = fs::remove_file(beta_path);
+    }
+
+    #[test]
+    fn gate_template_readiness_reports_incompatible_targets() {
+        let alpha_path = write_temp_test_fcs(
+            "template-ready-alpha",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A"],
+                vec![vec![10.0, 10.0], vec![25.0, 20.0]],
+                None,
+            ),
+        );
+        let beta_path = write_temp_test_fcs(
+            "template-ready-beta",
+            build_test_fcs(
+                vec!["FSC-A", "FL1"],
+                vec![vec![12.0, 2.0], vec![24.0, 4.5]],
+                None,
+            ),
+        );
+
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![
+            JsonValue::String(alpha_path.to_string_lossy().to_string()),
+            JsonValue::String(beta_path.to_string_lossy().to_string()),
+        ])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        assert_eq!(
+            imported
+                .get("gate_template_readiness")
+                .and_then(|readiness| readiness.get("status"))
+                .and_then(JsonValue::as_str),
+            Some("empty")
+        );
+
+        let gate = JsonValue::object([
+            ("kind", JsonValue::String("rectangle_gate".to_string())),
+            (
+                "sample_id",
+                JsonValue::String("template-ready-alpha".to_string()),
+            ),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(30.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(30.0)),
+        ])
+        .stringify_canonical();
+        let gated = session.dispatch_json(&gate);
+        let readiness = gated
+            .get("gate_template_readiness")
+            .expect("gate template readiness");
+        assert_eq!(
+            readiness.get("status").and_then(JsonValue::as_str),
+            Some("blocked")
+        );
+        assert_eq!(
+            readiness
+                .get("incompatible_target_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert!(
+            readiness
+                .get("samples")
+                .and_then(JsonValue::as_array)
+                .and_then(|samples| samples.first())
+                .and_then(|sample| sample.get("message"))
+                .and_then(JsonValue::as_str)
+                .is_some_and(|message| message.contains("SSC-A"))
         );
 
         let _ = fs::remove_file(alpha_path);

@@ -354,6 +354,64 @@ ApplicationWindow {
                                 wrapMode: Text.WordWrap
                             }
 
+                            Rectangle {
+                                id: gateTemplateReadinessCard
+                                width: parent.width
+                                height: gateTemplateReadinessContent.implicitHeight + 20
+                                radius: 14
+                                visible: desktopController.samples.length > 1
+                                property var readiness: desktopController.gateTemplateReadiness || ({})
+                                property string readinessStatus: readiness.status || "empty"
+                                color: readinessStatus === "ready" ? "#e7f0eb"
+                                      : readinessStatus === "partial" ? "#f6efe1" : "#f7ede8"
+                                border.width: 1
+                                border.color: readinessStatus === "ready" ? "#9fbea9"
+                                              : readinessStatus === "partial" ? "#d3c2a0" : "#d49b82"
+
+                                Column {
+                                    id: gateTemplateReadinessContent
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 5
+
+                                    Text {
+                                        width: parent.width
+                                        text: "Gate Template Readiness: "
+                                              + (gateTemplateReadinessCard.readinessStatus === "ready" ? "Ready"
+                                                 : gateTemplateReadinessCard.readinessStatus === "partial" ? "Partial"
+                                                 : gateTemplateReadinessCard.readinessStatus === "blocked" ? "Blocked"
+                                                 : "No template yet")
+                                        color: "#2e2216"
+                                        font.pixelSize: 14
+                                        font.weight: Font.DemiBold
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: (gateTemplateReadinessCard.readiness.command_count || 0)
+                                              + " gate command(s) from "
+                                              + (gateTemplateReadinessCard.readiness.source_display_name || "active sample")
+                                              + " • "
+                                              + (gateTemplateReadinessCard.readiness.compatible_target_count || 0)
+                                              + " of "
+                                              + (gateTemplateReadinessCard.readiness.target_sample_count || 0)
+                                              + " target sample(s) compatible"
+                                        color: "#6d5941"
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: gateTemplateReadinessCard.readiness.message || ""
+                                        color: gateTemplateReadinessCard.readinessStatus === "ready" ? "#4f695c" : "#8b4f3d"
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                            }
+
                             Text {
                                 width: parent.width
                                 text: desktopController.workspacePath === ""

@@ -19,6 +19,7 @@ class DesktopController : public QObject {
     Q_PROPERTY(QVariantMap sample READ sample NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList samples READ samples NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList assayWorkflowReadiness READ assayWorkflowReadiness NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantMap gateTemplateReadiness READ gateTemplateReadiness NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList analysisActions READ analysisActions NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList populations READ populations NOTIFY snapshotChanged)
     Q_PROPERTY(QVariantList commands READ commands NOTIFY snapshotChanged)
@@ -44,6 +45,7 @@ public:
     QVariantMap sample() const;
     QVariantList samples() const;
     QVariantList assayWorkflowReadiness() const;
+    QVariantMap gateTemplateReadiness() const;
     QVariantList analysisActions() const;
     QVariantList populations() const;
     QVariantList commands() const;
@@ -132,6 +134,7 @@ private:
     QVariantMap sample_;
     QVariantList samples_;
     QVariantList assayWorkflowReadiness_;
+    QVariantMap gateTemplateReadiness_;
     QVariantList analysisActions_;
     QVariantList populations_;
     QVariantList commands_;
