@@ -2917,6 +2917,10 @@ fn sample_json(
             },
         ),
         (
+            "compensation_qc",
+            compensation_qc_json(sample, compensation, analysis_profile),
+        ),
+        (
             "channel_transforms",
             JsonValue::Array(
                 sample
@@ -2982,6 +2986,200 @@ fn sample_json(
             ),
         ),
     ])
+}
+
+fn compensation_qc_json(
+    sample: &SampleFrame,
+    compensation: Option<&CompensationMatrix>,
+    analysis_profile: &SampleAnalysisProfile,
+) -> JsonValue {
+    let Some(matrix) = compensation else {
+        return JsonValue::object([
+            ("available", JsonValue::Bool(false)),
+            (
+                "enabled",
+                JsonValue::Bool(analysis_profile.compensation_enabled),
+            ),
+            ("status", JsonValue::String("not_available".to_string())),
+            (
+                "message",
+                JsonValue::String(
+                    "No parsed compensation matrix was found in this sample.".to_string(),
+                ),
+            ),
+            ("source_key", JsonValue::Null),
+            ("dimension", JsonValue::Number(0.0)),
+            ("parameter_count", JsonValue::Number(0.0)),
+            ("value_count", JsonValue::Number(0.0)),
+            ("expected_value_count", JsonValue::Number(0.0)),
+            ("finite_values", JsonValue::Bool(true)),
+            ("channels", JsonValue::Array(Vec::new())),
+            ("matched_channels", JsonValue::Array(Vec::new())),
+            ("missing_channels", JsonValue::Array(Vec::new())),
+            ("duplicate_channels", JsonValue::Array(Vec::new())),
+            ("diagonal_min", JsonValue::Null),
+            ("diagonal_max", JsonValue::Null),
+            ("off_diagonal_abs_max", JsonValue::Null),
+            (
+                "warnings",
+                string_values_json(vec![
+                    "Compensation is unavailable for this sample.".to_string(),
+                ]),
+            ),
+        ]);
+    };
+
+    let expected_value_count = matrix.dimension.saturating_mul(matrix.dimension);
+    let finite_values = matrix.values.iter().all(|value| value.is_finite());
+    let mut warnings = Vec::new();
+    if matrix.dimension == 0 {
+        warnings.push("Compensation matrix dimension is zero.".to_string());
+    }
+    if matrix.parameter_names.len() != matrix.dimension {
+        warnings.push(format!(
+            "Matrix dimension is {} but {} parameter names were parsed.",
+            matrix.dimension,
+            matrix.parameter_names.len()
+        ));
+    }
+    if matrix.values.len() != expected_value_count {
+        warnings.push(format!(
+            "Matrix dimension expects {expected_value_count} values but {} were parsed.",
+            matrix.values.len()
+        ));
+    }
+    if !finite_values {
+        warnings.push("Matrix contains non-finite spillover values.".to_string());
+    }
+
+    let mut seen_channels = Vec::<String>::new();
+    let mut duplicate_channels = Vec::<String>::new();
+    for channel in &matrix.parameter_names {
+        if seen_channels.iter().any(|seen| seen == channel) {
+            if !duplicate_channels.iter().any(|seen| seen == channel) {
+                duplicate_channels.push(channel.clone());
+            }
+        } else {
+            seen_channels.push(channel.clone());
+        }
+    }
+    if !duplicate_channels.is_empty() {
+        warnings.push(format!(
+            "Matrix repeats compensation channel(s): {}.",
+            duplicate_channels.join(", ")
+        ));
+    }
+
+    let mut matched_channels = Vec::new();
+    let mut missing_channels = Vec::new();
+    for channel in &matrix.parameter_names {
+        if sample.channel_index(channel).is_some() {
+            matched_channels.push(channel.clone());
+        } else {
+            missing_channels.push(channel.clone());
+        }
+    }
+    if !missing_channels.is_empty() {
+        warnings.push(format!(
+            "Matrix references channel(s) not found in this sample: {}.",
+            missing_channels.join(", ")
+        ));
+    }
+
+    let (diagonal_min, diagonal_max, off_diagonal_abs_max) =
+        compensation_matrix_summary_values(matrix);
+    let status = if warnings.is_empty() {
+        if analysis_profile.compensation_enabled {
+            "ready"
+        } else {
+            "available"
+        }
+    } else {
+        "warning"
+    };
+    let message = match status {
+        "ready" => "Compensation matrix is parsed, compatible, and currently applied.",
+        "available" => {
+            "Compensation matrix is parsed and compatible, but is not currently applied."
+        }
+        _ => "Review compensation warnings before using this sample for compensated analysis.",
+    };
+
+    JsonValue::object([
+        ("available", JsonValue::Bool(true)),
+        (
+            "enabled",
+            JsonValue::Bool(analysis_profile.compensation_enabled),
+        ),
+        ("status", JsonValue::String(status.to_string())),
+        ("message", JsonValue::String(message.to_string())),
+        ("source_key", JsonValue::String(matrix.source_key.clone())),
+        ("dimension", JsonValue::Number(matrix.dimension as f64)),
+        (
+            "parameter_count",
+            JsonValue::Number(matrix.parameter_names.len() as f64),
+        ),
+        ("value_count", JsonValue::Number(matrix.values.len() as f64)),
+        (
+            "expected_value_count",
+            JsonValue::Number(expected_value_count as f64),
+        ),
+        ("finite_values", JsonValue::Bool(finite_values)),
+        (
+            "channels",
+            string_values_json(matrix.parameter_names.clone()),
+        ),
+        ("matched_channels", string_values_json(matched_channels)),
+        ("missing_channels", string_values_json(missing_channels)),
+        ("duplicate_channels", string_values_json(duplicate_channels)),
+        ("diagonal_min", optional_number_json(diagonal_min)),
+        ("diagonal_max", optional_number_json(diagonal_max)),
+        (
+            "off_diagonal_abs_max",
+            optional_number_json(off_diagonal_abs_max),
+        ),
+        ("warnings", string_values_json(warnings)),
+    ])
+}
+
+fn compensation_matrix_summary_values(
+    matrix: &CompensationMatrix,
+) -> (Option<f64>, Option<f64>, Option<f64>) {
+    if matrix.dimension == 0 || matrix.values.len() < matrix.dimension * matrix.dimension {
+        return (None, None, None);
+    }
+
+    let mut diagonal_min = f64::INFINITY;
+    let mut diagonal_max = f64::NEG_INFINITY;
+    let mut off_diagonal_abs_max = 0.0f64;
+    let mut saw_diagonal = false;
+    let mut saw_off_diagonal = false;
+    for row in 0..matrix.dimension {
+        for column in 0..matrix.dimension {
+            let value = matrix.values[(row * matrix.dimension) + column];
+            if !value.is_finite() {
+                continue;
+            }
+            if row == column {
+                diagonal_min = diagonal_min.min(value);
+                diagonal_max = diagonal_max.max(value);
+                saw_diagonal = true;
+            } else {
+                off_diagonal_abs_max = off_diagonal_abs_max.max(value.abs());
+                saw_off_diagonal = true;
+            }
+        }
+    }
+
+    (
+        saw_diagonal.then_some(diagonal_min),
+        saw_diagonal.then_some(diagonal_max),
+        saw_off_diagonal.then_some(off_diagonal_abs_max),
+    )
+}
+
+fn string_values_json(values: Vec<String>) -> JsonValue {
+    JsonValue::Array(values.into_iter().map(JsonValue::String).collect())
 }
 
 fn workspace_sample_json(sample_id: &str, sample_info: &DesktopSampleInfo) -> JsonValue {
@@ -3366,8 +3564,9 @@ fn csv_optional_usize(value: Option<usize>) -> String {
 
 fn optional_number_json(value: Option<f64>) -> JsonValue {
     match value {
-        Some(value) => JsonValue::Number(value),
+        Some(value) if value.is_finite() => JsonValue::Number(value),
         None => JsonValue::Null,
+        _ => JsonValue::Null,
     }
 }
 
@@ -5364,6 +5563,23 @@ mod tests {
             imported.get("status").and_then(JsonValue::as_str),
             Some("ready")
         );
+        assert_eq!(
+            imported
+                .get("sample")
+                .and_then(|sample| sample.get("compensation_qc"))
+                .and_then(|qc| qc.get("status"))
+                .and_then(JsonValue::as_str),
+            Some("available")
+        );
+        assert_eq!(
+            imported
+                .get("sample")
+                .and_then(|sample| sample.get("compensation_qc"))
+                .and_then(|qc| qc.get("matched_channels"))
+                .and_then(JsonValue::as_array)
+                .map(|channels| channels.len()),
+            Some(2)
+        );
 
         let compensation_payload = JsonValue::object([
             (
@@ -5384,6 +5600,22 @@ mod tests {
                 .and_then(|sample| sample.get("compensation_enabled"))
                 .and_then(JsonValue::as_bool),
             Some(true)
+        );
+        assert_eq!(
+            compensated
+                .get("sample")
+                .and_then(|sample| sample.get("compensation_qc"))
+                .and_then(|qc| qc.get("status"))
+                .and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(
+            compensated
+                .get("sample")
+                .and_then(|sample| sample.get("compensation_qc"))
+                .and_then(|qc| qc.get("off_diagonal_abs_max"))
+                .and_then(JsonValue::as_f64),
+            Some(0.2)
         );
         assert_eq!(
             compensated
@@ -5427,6 +5659,47 @@ mod tests {
                 .get("analysis_action_count")
                 .and_then(JsonValue::as_u64),
             Some(2)
+        );
+
+        let _ = fs::remove_file(sample_path);
+    }
+
+    #[test]
+    fn compensation_qc_reports_missing_matrix_channels() {
+        let sample_path = write_temp_test_fcs(
+            "missing-comp-channel",
+            build_test_fcs(
+                vec!["FL1", "SSC-A"],
+                vec![vec![110.0, 10.0], vec![220.0, 20.0]],
+                Some(("$SPILLOVER", "2,FL1,FL2,1,0.2,0,1")),
+            ),
+        );
+
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![JsonValue::String(
+            sample_path.to_string_lossy().to_string(),
+        )])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        let qc = imported
+            .get("sample")
+            .and_then(|sample| sample.get("compensation_qc"))
+            .expect("compensation qc");
+        assert_eq!(
+            qc.get("status").and_then(JsonValue::as_str),
+            Some("warning")
+        );
+        assert_eq!(
+            qc.get("missing_channels")
+                .and_then(JsonValue::as_array)
+                .and_then(|channels| channels.first())
+                .and_then(JsonValue::as_str),
+            Some("FL2")
+        );
+        assert!(
+            qc.get("warnings")
+                .and_then(JsonValue::as_array)
+                .is_some_and(|warnings| !warnings.is_empty())
         );
 
         let _ = fs::remove_file(sample_path);

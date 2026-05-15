@@ -83,6 +83,8 @@ ApplicationWindow {
     }
 
     function formatStatValue(value) {
+        if (value === null || value === undefined || value === "")
+            return "n/a"
         const numeric = Number(value)
         if (!isFinite(numeric))
             return "n/a"
@@ -567,6 +569,76 @@ ApplicationWindow {
                                 color: "#6d5941"
                                 font.pixelSize: 13
                                 wrapMode: Text.WordWrap
+                            }
+
+                            Rectangle {
+                                id: compensationQcCard
+                                width: parent.width
+                                height: compensationQcColumn.implicitHeight + 20
+                                radius: 14
+                                property var qc: desktopController.sample.compensation_qc || ({})
+                                color: qc.status === "ready" ? "#e7f0eb"
+                                      : qc.status === "warning" ? "#f7ede8" : "#f7f4ed"
+                                border.width: 1
+                                border.color: qc.status === "ready" ? "#9fbea9"
+                                              : qc.status === "warning" ? "#d49b82" : "#d3c2a0"
+
+                                Column {
+                                    id: compensationQcColumn
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 5
+
+                                    Text {
+                                        width: parent.width
+                                        text: "Compensation QC: "
+                                              + (compensationQcCard.qc.status === "ready" ? "Applied"
+                                                 : compensationQcCard.qc.status === "available" ? "Available"
+                                                 : compensationQcCard.qc.status === "warning" ? "Needs review"
+                                                 : "Not available")
+                                        color: "#2e2216"
+                                        font.pixelSize: 14
+                                        font.weight: Font.DemiBold
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: compensationQcCard.qc.message || ""
+                                        color: "#6d5941"
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        visible: compensationQcCard.qc.available || false
+                                        text: "Matrix "
+                                              + Number(compensationQcCard.qc.dimension || 0).toFixed(0)
+                                              + "x"
+                                              + Number(compensationQcCard.qc.dimension || 0).toFixed(0)
+                                              + " • matched "
+                                              + ((compensationQcCard.qc.matched_channels || []).length)
+                                              + " channel(s)"
+                                              + " • max spillover "
+                                              + window.formatStatValue(compensationQcCard.qc.off_diagonal_abs_max)
+                                        color: "#6d5941"
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Repeater {
+                                        model: compensationQcCard.qc.warnings || []
+
+                                        delegate: Text {
+                                            width: compensationQcColumn.width
+                                            text: "• " + modelData
+                                            color: "#8b4f3d"
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
                             }
 
                             Repeater {
