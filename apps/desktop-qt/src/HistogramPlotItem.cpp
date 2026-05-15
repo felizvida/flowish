@@ -1,6 +1,7 @@
 #include "HistogramPlotItem.h"
 
 #include <QColor>
+#include <QMouseEvent>
 #include <QSGFlatColorMaterial>
 #include <QSGGeometry>
 #include <QSGGeometryNode>
@@ -10,6 +11,7 @@
 namespace {
 
 constexpr qreal kPlotPadding = 18.0;
+constexpr qreal kMinimumDragPixels = 8.0;
 
 bool sameRange(double left, double right) {
     return qAbs(left - right) < 1e-9;
@@ -19,6 +21,7 @@ bool sameRange(double left, double right) {
 
 HistogramPlotItem::HistogramPlotItem(QQuickItem *parent) : QQuickItem(parent) {
     setFlag(ItemHasContents, true);
+    setAcceptedMouseButtons(Qt::LeftButton);
 }
 
 QVariantList HistogramPlotItem::allBins() const {
@@ -128,7 +131,61 @@ QSGNode *HistogramPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
             bounds,
             plotArea));
     }
+    if (dragging_) {
+        const QRectF activeSelection = selectionRect();
+        if (activeSelection.width() >= 1.0) {
+            root->appendChildNode(buildSelectionNode(activeSelection));
+        }
+    }
     return root;
+}
+
+void HistogramPlotItem::mousePressEvent(QMouseEvent *event) {
+    if (event->button() != Qt::LeftButton) {
+        QQuickItem::mousePressEvent(event);
+        return;
+    }
+
+    dragging_ = true;
+    dragStart_ = event->localPos();
+    dragCurrent_ = dragStart_;
+    update();
+    event->accept();
+}
+
+void HistogramPlotItem::mouseMoveEvent(QMouseEvent *event) {
+    if (!dragging_) {
+        QQuickItem::mouseMoveEvent(event);
+        return;
+    }
+
+    dragCurrent_ = event->localPos();
+    update();
+    event->accept();
+}
+
+void HistogramPlotItem::mouseReleaseEvent(QMouseEvent *event) {
+    if (!dragging_ || event->button() != Qt::LeftButton) {
+        QQuickItem::mouseReleaseEvent(event);
+        return;
+    }
+
+    dragCurrent_ = event->localPos();
+    const QRectF activeSelection = selectionRect();
+    const bool validSelection = activeSelection.width() >= kMinimumDragPixels;
+    const QRectF bounds = dataRect();
+    const QRectF plotArea = plotRect();
+
+    dragging_ = false;
+    update();
+
+    if (validSelection) {
+        emit rangeGateDrawn(
+            mapPlotXToData(activeSelection.left(), bounds, plotArea),
+            mapPlotXToData(activeSelection.right(), bounds, plotArea));
+    }
+
+    event->accept();
 }
 
 QVector<QRectF> HistogramPlotItem::toBinRects(const QVariantList &values) {
@@ -169,8 +226,24 @@ QRectF HistogramPlotItem::plotRect() const {
     return QRectF(
         kPlotPadding,
         kPlotPadding,
-        qMax<qreal>(0.0, width() - (kPlotPadding * 2.0)),
-        qMax<qreal>(0.0, height() - (kPlotPadding * 2.0)));
+        qMax<qreal>(1.0, width() - (kPlotPadding * 2.0)),
+        qMax<qreal>(1.0, height() - (kPlotPadding * 2.0)));
+}
+
+QRectF HistogramPlotItem::selectionRect() const {
+    const QRectF plotArea = plotRect();
+    const qreal left = qBound(plotArea.left(), qMin(dragStart_.x(), dragCurrent_.x()), plotArea.right());
+    const qreal right = qBound(plotArea.left(), qMax(dragStart_.x(), dragCurrent_.x()), plotArea.right());
+    return QRectF(QPointF(left, plotArea.top()), QPointF(right, plotArea.bottom())).normalized();
+}
+
+double HistogramPlotItem::mapPlotXToData(
+    double x,
+    const QRectF &bounds,
+    const QRectF &plotArea) const {
+    const qreal clampedX = qBound(plotArea.left(), x, plotArea.right());
+    const qreal xNorm = (clampedX - plotArea.left()) / plotArea.width();
+    return bounds.left() + (xNorm * bounds.width());
 }
 
 QRectF HistogramPlotItem::mapBinToPlot(
@@ -190,6 +263,37 @@ QRectF HistogramPlotItem::mapBinToPlot(
     return QRectF(
         QPointF(qMin(left, right), qMin(top, baseline)),
         QPointF(qMax(left, right), qMax(top, baseline)));
+}
+
+QSGGeometryNode *HistogramPlotItem::buildSelectionNode(const QRectF &selectionRect) const {
+    auto *geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), 6);
+    geometry->setDrawingMode(QSGGeometry::DrawTriangles);
+    auto *vertices = geometry->vertexDataAsPoint2D();
+
+    const float left = static_cast<float>(selectionRect.left());
+    const float right = static_cast<float>(selectionRect.right());
+    const float top = static_cast<float>(selectionRect.top());
+    const float bottom = static_cast<float>(selectionRect.bottom());
+
+    vertices[0].set(left, top);
+    vertices[1].set(right, top);
+    vertices[2].set(left, bottom);
+    vertices[3].set(left, bottom);
+    vertices[4].set(right, top);
+    vertices[5].set(right, bottom);
+
+    QColor selectionFill("#ef8354");
+    selectionFill.setAlphaF(0.24);
+
+    auto *material = new QSGFlatColorMaterial();
+    material->setColor(selectionFill);
+
+    auto *node = new QSGGeometryNode();
+    node->setGeometry(geometry);
+    node->setMaterial(material);
+    node->setFlag(QSGNode::OwnsGeometry, true);
+    node->setFlag(QSGNode::OwnsMaterial, true);
+    return node;
 }
 
 QSGGeometryNode *HistogramPlotItem::buildBarsNode(

@@ -53,7 +53,7 @@ ApplicationWindow {
 
     function plotHelperText(plot) {
         if ((plot.kind || "") === "histogram")
-            return "Histogram view is read-only today; use Auto, Focus, and Zoom to inspect distributions."
+            return "Drag horizontally to create a histogram range gate, or use High Gate for a midpoint-positive shortcut."
         return window.activeGateTool === "rectangle"
                 ? "Drag to author a rectangle gate on this projection"
                 : "Click to place polygon vertices, then right-click to finish"
@@ -1225,7 +1225,7 @@ ApplicationWindow {
                             Text {
                                 width: parent.width
                                 text: window.activeGateTool === "rectangle"
-                                      ? "Drag directly on either plot to create a rectangle gate, use Quadrants on scatter plots, or use High Gate on histograms. Every gate is appended to the Rust command log and becomes a child of the currently selected population."
+                                      ? "Drag on scatter plots for rectangle gates, drag across histograms for range gates, use Quadrants for four-way scatter splits, or use High Gate for midpoint-positive histogram gates. Every gate is appended to the Rust command log and becomes a child of the currently selected population."
                                       : "Click to place polygon vertices on either plot, then right-click to commit. Right-click with fewer than three vertices clears the draft."
                                 color: "#6d5941"
                                 font.pixelSize: 13
@@ -1649,6 +1649,12 @@ ApplicationWindow {
                                 xMax: plotA.x_range ? plotA.x_range.max : 1
                                 yMin: plotA.y_range ? plotA.y_range.min : 0
                                 yMax: plotA.y_range ? plotA.y_range.max : 1
+                                onRangeGateDrawn: function (min, max) {
+                                    desktopController.createHistogramRangeGateForPlot(
+                                                plotA.id || "",
+                                                min,
+                                                max)
+                                }
                             }
                         }
                     }
@@ -1791,6 +1797,12 @@ ApplicationWindow {
                                 xMax: plotB.x_range ? plotB.x_range.max : 1
                                 yMin: plotB.y_range ? plotB.y_range.min : 0
                                 yMax: plotB.y_range ? plotB.y_range.max : 1
+                                onRangeGateDrawn: function (min, max) {
+                                    desktopController.createHistogramRangeGateForPlot(
+                                                plotB.id || "",
+                                                min,
+                                                max)
+                                }
                             }
                         }
                     }
@@ -1934,6 +1946,12 @@ ApplicationWindow {
                                 xMax: plotC.x_range ? plotC.x_range.max : 1
                                 yMin: plotC.y_range ? plotC.y_range.min : 0
                                 yMax: plotC.y_range ? plotC.y_range.max : 1
+                                onRangeGateDrawn: function (min, max) {
+                                    desktopController.createHistogramRangeGateForPlot(
+                                                plotC.id || "",
+                                                min,
+                                                max)
+                                }
                             }
                         }
                     }

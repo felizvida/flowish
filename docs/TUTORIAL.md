@@ -6,7 +6,7 @@ By the end, you will:
 
 - create a root rectangle gate
 - create a child polygon gate
-- create a histogram high gate
+- create a histogram range gate
 - apply a transform preset
 - refocus a plot on the active population
 - inspect population stats and export them
@@ -100,17 +100,17 @@ You should now see two ordered entries:
 
 This is the important Parallax idea: your analysis is represented as an ordered, replayable sequence of explicit commands.
 
-## Step 6. Create A Histogram High Gate
+## Step 6. Create A Histogram Range Gate
 
-Click the histogram panel's `High Gate` button.
+Drag horizontally across the histogram panel to define a one-channel range. For a quick marker-positive shortcut, you can also click the histogram panel's `High Gate` button.
 
 Expected result:
 
 - a new population appears in the list
 - the command log gains one `range_gate`
-- the histogram highlights the bins that fall in the high range
+- the histogram highlights the bins that fall in the gated range
 
-The current implementation uses the midpoint of the visible histogram x-range as the lower threshold. Use `Zoom In`, `Zoom Out`, or `Auto` first if you want to change the visible range before creating the gate.
+For `High Gate`, Parallax uses the midpoint of the visible histogram x-range as the lower threshold. Use `Zoom In`, `Zoom Out`, or `Auto` first if you want to change the visible range before using that shortcut.
 
 ## Step 7. Apply A Transform Preset
 

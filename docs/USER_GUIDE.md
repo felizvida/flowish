@@ -106,8 +106,9 @@ How it behaves today:
 - histograms are computed in Rust from the same replayed sample state as gating and scatter plots
 - the active population highlights its own per-bin counts on top of the full distribution
 - the histogram responds to `Auto`, `Focus`, `Zoom In`, and `Zoom Out` like the scatter plots
-- `High Gate` creates a replayable one-channel `range_gate` from the midpoint of the current histogram view to the visible maximum
-- histogram panels do not yet support drag-authored interval gates or editable threshold handles
+- dragging horizontally across the histogram creates a replayable one-channel `range_gate`
+- `High Gate` creates the same command type from the midpoint of the current histogram view to the visible maximum
+- histogram panels do not yet support editable threshold handles
 
 Parallax currently chooses the histogram channel automatically, preferring a non-time, non-structural analysis channel such as a fluorescence marker when available.
 
@@ -235,15 +236,15 @@ What happens next:
 - Four replayable `rectangle_gate` commands are appended atomically
 - The four populations appear in the population list and can be compared or exported like any other population
 
-### Histogram High Gate
+### Histogram Range Gates
 
-Use `High Gate` on a histogram when you need a quick marker-positive population for workflows such as γH2AX, TMRE, reporter positivity, or other one-channel intensity checks.
+Use histogram range gates when you need a marker-positive or marker-windowed population for workflows such as γH2AX, TMRE, reporter positivity, or other one-channel intensity checks.
 
 What happens next:
 
 - Parallax creates a `range_gate` on the histogram channel
-- The lower bound is the midpoint of the current visible histogram range
-- The upper bound is the current visible maximum
+- If you drag across the histogram, the drag start/end define the lower and upper bounds
+- If you click `High Gate`, the lower bound is the midpoint of the current visible histogram range and the upper bound is the current visible maximum
 - The new population is selected immediately so the histogram highlights its gated bins
 
 ## Command Log

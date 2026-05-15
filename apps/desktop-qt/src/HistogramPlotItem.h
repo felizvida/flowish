@@ -1,11 +1,13 @@
 #pragma once
 
+#include <QPointF>
 #include <QQuickItem>
 #include <QRectF>
 #include <QVariantList>
 #include <QVector>
 
 class QColor;
+class QMouseEvent;
 class QSGGeometryNode;
 class QSGNode;
 
@@ -39,15 +41,22 @@ signals:
     void allBinsChanged();
     void highlightBinsChanged();
     void plotRangeChanged();
+    void rangeGateDrawn(double min, double max);
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *updatePaintNodeData) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
     static QVector<QRectF> toBinRects(const QVariantList &values);
     QRectF dataRect() const;
     QRectF plotRect() const;
+    QRectF selectionRect() const;
+    double mapPlotXToData(double x, const QRectF &bounds, const QRectF &plotArea) const;
     QRectF mapBinToPlot(const QRectF &dataRect, const QRectF &bounds, const QRectF &plotArea) const;
+    QSGGeometryNode *buildSelectionNode(const QRectF &selectionRect) const;
     QSGGeometryNode *buildBarsNode(
         const QVector<QRectF> &bins,
         const QColor &color,
@@ -62,4 +71,7 @@ private:
     double xMax_ = 1.0;
     double yMin_ = 0.0;
     double yMax_ = 1.0;
+    bool dragging_ = false;
+    QPointF dragStart_;
+    QPointF dragCurrent_;
 };

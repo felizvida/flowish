@@ -8,7 +8,7 @@
 
 Parallax is a local-first cytometry workstation built around one shared Rust engine, an explicit command log, and a native Qt/QML desktop. It is designed for teams who care about speed, deterministic results, and a clean handoff between interactive desktop work and reproducible execution.
 
-Today, Parallax is an early but real workstation shell. You can launch the desktop, start from the bundled demo sample or import one or many `.fcs` files, switch between samples inside one local session, assign cohort labels to samples, author rectangle, polygon, quadrant, and histogram high gates, inspect a native histogram view for channel distributions, review per-population counts, frequencies, means, and medians, define replayable derived metrics such as positive fractions and mean ratios, compare the selected population across loaded samples, inspect grouped cohort summaries, export active-sample, selected-population, derived-metric, cohort-summary, or batch stats to CSV, apply replayable compensation and transform settings, adjust plot views through explicit view actions, inspect the command log, and undo or redo gate actions through the same replayable state model.
+Today, Parallax is an early but real workstation shell. You can launch the desktop, start from the bundled demo sample or import one or many `.fcs` files, switch between samples inside one local session, assign cohort labels to samples, author rectangle, polygon, quadrant, and histogram range gates, inspect a native histogram view for channel distributions, review per-population counts, frequencies, means, and medians, define replayable derived metrics such as positive fractions and mean ratios, compare the selected population across loaded samples, inspect grouped cohort summaries, export active-sample, selected-population, derived-metric, cohort-summary, or batch stats to CSV, apply replayable compensation and transform settings, adjust plot views through explicit view actions, inspect the command log, and undo or redo gate actions through the same replayable state model.
 
 ## Why Parallax
 
@@ -34,11 +34,11 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 
 - Deterministic gating and replay in a shared Rust core
 - FCS parsing crate for ingestion and metadata inspection
-- Qt/QML desktop with live rectangle, polygon, quadrant, and histogram high-gate authoring
+- Qt/QML desktop with live rectangle, polygon, quadrant, and histogram range-gate authoring
 - Desktop FCS import and multi-sample switching in one local session
 - Workspace save/load that reopens sessions from sample sources plus replayable command history
 - Parsed FCS compensation toggle plus per-channel linear, signed-log10, asinh, biexponential, and logicle transform presets
-- Native histogram panel with population-aware highlighting and replayable high-gate creation for imported or demo samples
+- Native histogram panel with population-aware highlighting plus drag-authored range gates and midpoint `High Gate` creation
 - Population stats panel with matched-event counts, parent/all frequencies, and per-channel mean/median summaries
 - CSV export for active-sample population stats
 - Active-sample gate-template application across the other loaded samples

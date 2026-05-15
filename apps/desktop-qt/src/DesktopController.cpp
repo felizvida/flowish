@@ -969,7 +969,46 @@ bool DesktopController::createHistogramHighGateForPlot(const QString &plotId) {
         return false;
     }
 
-    const QString populationId = nextInteractivePopulationId(plotId) + QStringLiteral("_high");
+    return commitHistogramRangeGateForPlot(
+        plotId,
+        xMin + ((xMax - xMin) / 2.0),
+        xMax,
+        QStringLiteral("_high"));
+}
+
+bool DesktopController::createHistogramRangeGateForPlot(
+    const QString &plotId,
+    double min,
+    double max) {
+    return commitHistogramRangeGateForPlot(plotId, min, max, QStringLiteral("_range"));
+}
+
+bool DesktopController::commitHistogramRangeGateForPlot(
+    const QString &plotId,
+    double min,
+    double max,
+    const QString &populationSuffix) {
+    const QVariantMap plot = plotDefinition(plotId);
+    if (plot.isEmpty()) {
+        setLastError(QStringLiteral("Unknown plot '%1'").arg(plotId));
+        return false;
+    }
+    if (plot.value("kind").toString() != QStringLiteral("histogram")) {
+        setLastError("Range gates require a histogram plot");
+        return false;
+    }
+
+    const QString channel = plot.value("x_channel").toString();
+    if (channel.trimmed().isEmpty()) {
+        setLastError("Range gates require a named histogram channel");
+        return false;
+    }
+    if (!std::isfinite(min) || !std::isfinite(max) || qFuzzyIsNull(max - min)) {
+        setLastError("Range gate thresholds must be finite and distinct");
+        return false;
+    }
+
+    const QString populationId = nextInteractivePopulationId(plotId) + populationSuffix;
     QJsonObject command;
     command.insert("kind", "range_gate");
     const QString sampleId = activeSampleId();
@@ -983,8 +1022,8 @@ bool DesktopController::createHistogramHighGateForPlot(const QString &plotId) {
         command.insert("parent_population", selectedPopulationKey_);
     }
     command.insert("channel", channel);
-    command.insert("min", xMin + ((xMax - xMin) / 2.0));
-    command.insert("max", xMax);
+    command.insert("min", qMin(min, max));
+    command.insert("max", qMax(min, max));
 
     return commitInteractiveCommand(command, populationId);
 }

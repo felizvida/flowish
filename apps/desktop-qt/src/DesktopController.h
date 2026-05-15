@@ -104,6 +104,10 @@ public:
         const QString &plotId,
         const QVariantList &vertices);
     Q_INVOKABLE bool createQuadrantGatesForPlot(const QString &plotId);
+    Q_INVOKABLE bool createHistogramRangeGateForPlot(
+        const QString &plotId,
+        double min,
+        double max);
     Q_INVOKABLE bool createHistogramHighGateForPlot(const QString &plotId);
 
 signals:
@@ -129,6 +133,11 @@ private:
     QString nextInteractivePopulationId(const QString &plotId) const;
     QString activeSampleId() const;
     QString findSampleChannel(const QStringList &candidates) const;
+    bool commitHistogramRangeGateForPlot(
+        const QString &plotId,
+        double min,
+        double max,
+        const QString &populationSuffix);
     static QString sanitizePopulationSegment(const QString &value);
 
     void *session_ = nullptr;
