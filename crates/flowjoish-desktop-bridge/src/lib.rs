@@ -109,11 +109,37 @@ enum AnalysisAction {
         sample_id: String,
         enabled: bool,
     },
+    SetCompensationOverride {
+        sample_id: String,
+        matrix: CompensationMatrix,
+    },
+    ClearCompensationOverride {
+        sample_id: String,
+    },
     SetChannelTransform {
         sample_id: String,
         channel: String,
         transform: ChannelTransform,
     },
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct SampleAnalysisState {
+    profile: SampleAnalysisProfile,
+    compensation_override: Option<CompensationMatrix>,
+}
+
+impl SampleAnalysisState {
+    fn effective_compensation<'a>(
+        &'a self,
+        parsed_compensation: Option<&'a CompensationMatrix>,
+    ) -> Option<&'a CompensationMatrix> {
+        self.compensation_override.as_ref().or(parsed_compensation)
+    }
+
+    fn compensation_override_active(&self) -> bool {
+        self.compensation_override.is_some()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -291,6 +317,8 @@ impl AnalysisAction {
     fn kind(&self) -> &'static str {
         match self {
             Self::SetCompensationEnabled { .. } => "set_compensation_enabled",
+            Self::SetCompensationOverride { .. } => "set_compensation_override",
+            Self::ClearCompensationOverride { .. } => "clear_compensation_override",
             Self::SetChannelTransform { .. } => "set_channel_transform",
         }
     }
@@ -298,6 +326,8 @@ impl AnalysisAction {
     fn sample_id(&self) -> &str {
         match self {
             Self::SetCompensationEnabled { sample_id, .. }
+            | Self::SetCompensationOverride { sample_id, .. }
+            | Self::ClearCompensationOverride { sample_id, .. }
             | Self::SetChannelTransform { sample_id, .. } => sample_id,
         }
     }
@@ -314,6 +344,15 @@ impl AnalysisAction {
                 ("kind", JsonValue::String(self.kind().to_string())),
                 ("sample_id", JsonValue::String(sample_id.clone())),
                 ("enabled", JsonValue::Bool(*enabled)),
+            ]),
+            Self::SetCompensationOverride { sample_id, matrix } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind().to_string())),
+                ("sample_id", JsonValue::String(sample_id.clone())),
+                ("matrix", compensation_matrix_json(matrix)),
+            ]),
+            Self::ClearCompensationOverride { sample_id } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind().to_string())),
+                ("sample_id", JsonValue::String(sample_id.clone())),
             ]),
             Self::SetChannelTransform {
                 sample_id,
@@ -334,6 +373,23 @@ impl AnalysisAction {
             "set_compensation_enabled" => Ok(Self::SetCompensationEnabled {
                 sample_id: required_json_string(value, "sample_id")?.to_string(),
                 enabled: required_json_bool(value, "enabled")?,
+            }),
+            "set_compensation_override" => {
+                let matrix = match value.get("matrix_text").and_then(JsonValue::as_str) {
+                    Some(matrix_text) => parse_compensation_override_text(matrix_text)?,
+                    None => parse_compensation_matrix_json(
+                        value
+                            .get("matrix")
+                            .ok_or_else(|| "missing field 'matrix'".to_string())?,
+                    )?,
+                };
+                Ok(Self::SetCompensationOverride {
+                    sample_id: required_json_string(value, "sample_id")?.to_string(),
+                    matrix,
+                })
+            }
+            "clear_compensation_override" => Ok(Self::ClearCompensationOverride {
+                sample_id: required_json_string(value, "sample_id")?.to_string(),
             }),
             "set_channel_transform" => Ok(Self::SetChannelTransform {
                 sample_id: required_json_string(value, "sample_id")?.to_string(),
@@ -404,13 +460,13 @@ impl AnalysisActionLog {
         Ok(Self { records })
     }
 
-    fn replay_profile(
+    fn replay_state(
         &self,
         sample_id: &str,
         raw_sample: &SampleFrame,
         compensation: Option<&CompensationMatrix>,
-    ) -> Result<SampleAnalysisProfile, String> {
-        let mut profile = SampleAnalysisProfile::default();
+    ) -> Result<SampleAnalysisState, String> {
+        let mut state = SampleAnalysisState::default();
         for record in &self.records {
             if record.action.sample_id() != sample_id {
                 return Err(format!(
@@ -423,22 +479,33 @@ impl AnalysisActionLog {
 
             match &record.action {
                 AnalysisAction::SetCompensationEnabled { enabled, .. } => {
-                    profile.compensation_enabled = *enabled;
+                    state.profile.compensation_enabled = *enabled;
+                }
+                AnalysisAction::SetCompensationOverride { matrix, .. } => {
+                    state.compensation_override = Some(matrix.clone());
+                }
+                AnalysisAction::ClearCompensationOverride { .. } => {
+                    state.compensation_override = None;
                 }
                 AnalysisAction::SetChannelTransform {
                     channel, transform, ..
                 } => {
-                    profile
+                    state
+                        .profile
                         .transforms
                         .insert(channel.clone(), transform.clone());
                 }
             }
 
-            apply_sample_analysis(raw_sample, compensation, &profile)
-                .map_err(|error| error.to_string())?;
+            apply_sample_analysis(
+                raw_sample,
+                state.effective_compensation(compensation),
+                &state.profile,
+            )
+            .map_err(|error| error.to_string())?;
         }
 
-        Ok(profile)
+        Ok(state)
     }
 }
 
@@ -893,7 +960,7 @@ impl DesktopSession {
             .redo_stacks
             .get(&self.sample_id)
             .ok_or_else(|| format!("missing redo state for sample '{}'", self.sample_id))?;
-        let (processed_sample, analysis_profile, state, execution_hash) =
+        let (processed_sample, analysis_state, state, execution_hash) =
             self.active_replay_state()?;
         let plot_specs = default_plot_specs(&processed_sample);
         let plot_ranges = view_log.replay_ranges(
@@ -940,8 +1007,9 @@ impl DesktopSession {
                 sample_json(
                     sample,
                     sample_info,
-                    artifact.compensation.as_ref(),
-                    &analysis_profile,
+                    analysis_state.effective_compensation(artifact.compensation.as_ref()),
+                    &analysis_state.profile,
+                    analysis_state.compensation_override_active(),
                 ),
             ),
             (
@@ -1026,7 +1094,10 @@ impl DesktopSession {
         };
 
         match value.get("kind").and_then(JsonValue::as_str) {
-            Some("set_compensation_enabled") | Some("set_channel_transform") => {
+            Some("set_compensation_enabled")
+            | Some("set_compensation_override")
+            | Some("clear_compensation_override")
+            | Some("set_channel_transform") => {
                 return self.dispatch_analysis_json(&value);
             }
             Some("reset_plot_view") | Some("focus_plot_population") | Some("scale_plot_view") => {
@@ -1192,18 +1263,18 @@ impl DesktopSession {
             Ok(artifact) => artifact,
             Err(message) => return error_json_value(message),
         };
-        let profile = match next_log.replay_profile(
+        let analysis_state = match next_log.replay_state(
             artifact.raw_sample.sample_id(),
             &artifact.raw_sample,
             artifact.compensation.as_ref(),
         ) {
-            Ok(profile) => profile,
+            Ok(state) => state,
             Err(message) => return error_json_value(message),
         };
         let processed_sample = match apply_sample_analysis(
             &artifact.raw_sample,
-            artifact.compensation.as_ref(),
-            &profile,
+            analysis_state.effective_compensation(artifact.compensation.as_ref()),
+            &analysis_state.profile,
         ) {
             Ok(sample) => sample,
             Err(error) => return error_json_value(error.to_string()),
@@ -1744,14 +1815,14 @@ impl DesktopSession {
     fn active_processed_environment(
         &self,
     ) -> Result<(SampleFrame, SampleAnalysisProfile, u64, ReplayEnvironment), String> {
-        let (processed_sample, analysis_profile, _, execution_hash) = self.active_replay_state()?;
+        let (processed_sample, analysis_state, _, execution_hash) = self.active_replay_state()?;
         let mut environment = ReplayEnvironment::new();
         environment
             .insert_sample(processed_sample.clone())
             .map_err(|error| error.to_string())?;
         Ok((
             processed_sample,
-            analysis_profile,
+            analysis_state.profile,
             execution_hash,
             environment,
         ))
@@ -1759,7 +1830,7 @@ impl DesktopSession {
 
     fn active_replay_state(
         &self,
-    ) -> Result<(SampleFrame, SampleAnalysisProfile, WorkspaceState, u64), String> {
+    ) -> Result<(SampleFrame, SampleAnalysisState, WorkspaceState, u64), String> {
         self.replay_state_for_sample(&self.sample_id)
     }
 
@@ -1791,7 +1862,7 @@ impl DesktopSession {
         &self,
         sample_id: &str,
     ) -> Result<(SampleFrame, SampleAnalysisProfile, u64, ReplayEnvironment), String> {
-        let (processed_sample, analysis_profile, _, execution_hash) =
+        let (processed_sample, analysis_state, _, execution_hash) =
             self.replay_state_for_sample(sample_id)?;
         let mut environment = ReplayEnvironment::new();
         environment
@@ -1799,7 +1870,7 @@ impl DesktopSession {
             .map_err(|error| error.to_string())?;
         Ok((
             processed_sample,
-            analysis_profile,
+            analysis_state.profile,
             execution_hash,
             environment,
         ))
@@ -1808,18 +1879,18 @@ impl DesktopSession {
     fn replay_state_for_sample(
         &self,
         sample_id: &str,
-    ) -> Result<(SampleFrame, SampleAnalysisProfile, WorkspaceState, u64), String> {
+    ) -> Result<(SampleFrame, SampleAnalysisState, WorkspaceState, u64), String> {
         let artifact = self.sample_artifact_for(sample_id)?;
         let analysis_log = self.analysis_log_for_sample(sample_id)?;
-        let profile = analysis_log.replay_profile(
+        let analysis_state = analysis_log.replay_state(
             artifact.raw_sample.sample_id(),
             &artifact.raw_sample,
             artifact.compensation.as_ref(),
         )?;
         let processed_sample = apply_sample_analysis(
             &artifact.raw_sample,
-            artifact.compensation.as_ref(),
-            &profile,
+            analysis_state.effective_compensation(artifact.compensation.as_ref()),
+            &analysis_state.profile,
         )
         .map_err(|error| error.to_string())?;
         let mut environment = ReplayEnvironment::new();
@@ -1835,7 +1906,7 @@ impl DesktopSession {
         hasher.update_u64(analysis_log.execution_hash());
         hasher.update_u64(state.execution_hash);
 
-        Ok((processed_sample, profile, state, hasher.finish_u64()))
+        Ok((processed_sample, analysis_state, state, hasher.finish_u64()))
     }
 
     fn comparison_state_hash(&self) -> Result<u64, String> {
@@ -2381,15 +2452,15 @@ impl ImportedSession {
                 .view_logs
                 .get(sample_id)
                 .ok_or_else(|| format!("missing view log for sample '{sample_id}'"))?;
-            let profile = analysis_log.replay_profile(
+            let analysis_state = analysis_log.replay_state(
                 sample_id,
                 &artifact.raw_sample,
                 artifact.compensation.as_ref(),
             )?;
             let processed_sample = apply_sample_analysis(
                 &artifact.raw_sample,
-                artifact.compensation.as_ref(),
-                &profile,
+                analysis_state.effective_compensation(artifact.compensation.as_ref()),
+                &analysis_state.profile,
             )
             .map_err(|error| error.to_string())?;
             let mut replay_environment = ReplayEnvironment::new();
@@ -3157,6 +3228,7 @@ fn sample_json(
     sample_info: &DesktopSampleInfo,
     compensation: Option<&CompensationMatrix>,
     analysis_profile: &SampleAnalysisProfile,
+    compensation_override_active: bool,
 ) -> JsonValue {
     JsonValue::object([
         ("id", JsonValue::String(sample.sample_id().to_string())),
@@ -3210,8 +3282,17 @@ fn sample_json(
             },
         ),
         (
+            "compensation_override_active",
+            JsonValue::Bool(compensation_override_active),
+        ),
+        (
             "compensation_qc",
-            compensation_qc_json(sample, compensation, analysis_profile),
+            compensation_qc_json(
+                sample,
+                compensation,
+                analysis_profile,
+                compensation_override_active,
+            ),
         ),
         ("assay_workflows", assay_workflows_json(sample)),
         (
@@ -3701,10 +3782,15 @@ fn compensation_qc_json(
     sample: &SampleFrame,
     compensation: Option<&CompensationMatrix>,
     analysis_profile: &SampleAnalysisProfile,
+    compensation_override_active: bool,
 ) -> JsonValue {
     let Some(matrix) = compensation else {
         return JsonValue::object([
             ("available", JsonValue::Bool(false)),
+            (
+                "override_active",
+                JsonValue::Bool(compensation_override_active),
+            ),
             (
                 "enabled",
                 JsonValue::Bool(analysis_profile.compensation_enabled),
@@ -3717,6 +3803,7 @@ fn compensation_qc_json(
                 ),
             ),
             ("source_key", JsonValue::Null),
+            ("source_kind", JsonValue::String("none".to_string())),
             ("dimension", JsonValue::Number(0.0)),
             ("parameter_count", JsonValue::Number(0.0)),
             ("value_count", JsonValue::Number(0.0)),
@@ -3806,23 +3893,42 @@ fn compensation_qc_json(
     } else {
         "warning"
     };
+    let source_label = if compensation_override_active {
+        "Compensation override"
+    } else {
+        "Compensation matrix"
+    };
     let message = match status {
-        "ready" => "Compensation matrix is parsed, compatible, and currently applied.",
+        "ready" => format!("{source_label} is parsed, compatible, and currently applied."),
         "available" => {
-            "Compensation matrix is parsed and compatible, but is not currently applied."
+            format!("{source_label} is parsed and compatible, but is not currently applied.")
         }
-        _ => "Review compensation warnings before using this sample for compensated analysis.",
+        _ => format!(
+            "Review {source_label} warnings before using this sample for compensated analysis."
+        ),
     };
 
     JsonValue::object([
         ("available", JsonValue::Bool(true)),
         (
+            "override_active",
+            JsonValue::Bool(compensation_override_active),
+        ),
+        (
             "enabled",
             JsonValue::Bool(analysis_profile.compensation_enabled),
         ),
         ("status", JsonValue::String(status.to_string())),
-        ("message", JsonValue::String(message.to_string())),
+        ("message", JsonValue::String(message)),
         ("source_key", JsonValue::String(matrix.source_key.clone())),
+        (
+            "source_kind",
+            JsonValue::String(if compensation_override_active {
+                "override".to_string()
+            } else {
+                "parsed".to_string()
+            }),
+        ),
         ("dimension", JsonValue::Number(matrix.dimension as f64)),
         (
             "parameter_count",
@@ -4644,6 +4750,25 @@ fn analysis_actions_json(log: &AnalysisActionLog) -> JsonValue {
                         }),
                     ),
                 ]),
+                AnalysisAction::SetCompensationOverride { matrix, .. } => JsonValue::object([
+                    ("sequence", JsonValue::Number(record.sequence as f64)),
+                    ("kind", JsonValue::String(record.action.kind().to_string())),
+                    (
+                        "summary",
+                        JsonValue::String(format!(
+                            "Override compensation matrix ({}x{})",
+                            matrix.dimension, matrix.dimension
+                        )),
+                    ),
+                ]),
+                AnalysisAction::ClearCompensationOverride { .. } => JsonValue::object([
+                    ("sequence", JsonValue::Number(record.sequence as f64)),
+                    ("kind", JsonValue::String(record.action.kind().to_string())),
+                    (
+                        "summary",
+                        JsonValue::String("Clear compensation override".to_string()),
+                    ),
+                ]),
                 AnalysisAction::SetChannelTransform {
                     channel, transform, ..
                 } => JsonValue::object([
@@ -4660,6 +4785,146 @@ fn analysis_actions_json(log: &AnalysisActionLog) -> JsonValue {
             })
             .collect(),
     )
+}
+
+fn compensation_matrix_json(matrix: &CompensationMatrix) -> JsonValue {
+    JsonValue::object([
+        ("source_key", JsonValue::String(matrix.source_key.clone())),
+        ("dimension", JsonValue::Number(matrix.dimension as f64)),
+        (
+            "parameter_names",
+            string_values_json(matrix.parameter_names.clone()),
+        ),
+        (
+            "values",
+            JsonValue::Array(
+                matrix
+                    .values
+                    .iter()
+                    .map(|value| JsonValue::Number(*value))
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+fn parse_compensation_matrix_json(value: &JsonValue) -> Result<CompensationMatrix, String> {
+    let dimension = value
+        .get("dimension")
+        .and_then(JsonValue::as_u64)
+        .ok_or_else(|| "compensation matrix is missing dimension".to_string())?
+        as usize;
+    let source_key = value
+        .get("source_key")
+        .and_then(JsonValue::as_str)
+        .filter(|source| !source.trim().is_empty())
+        .unwrap_or("override")
+        .to_string();
+    let parameter_names = value
+        .get("parameter_names")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| "compensation matrix is missing parameter_names".to_string())?
+        .iter()
+        .map(|entry| {
+            entry
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| "compensation matrix contains an empty parameter name".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let values = value
+        .get("values")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| "compensation matrix is missing values".to_string())?
+        .iter()
+        .map(|entry| {
+            let value = entry
+                .as_f64()
+                .ok_or_else(|| "compensation matrix contains a non-numeric value".to_string())?;
+            if value.is_finite() {
+                Ok(value)
+            } else {
+                Err("compensation matrix contains a non-finite value".to_string())
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_compensation_matrix_parts(&source_key, dimension, parameter_names, values)
+}
+
+fn parse_compensation_override_text(raw: &str) -> Result<CompensationMatrix, String> {
+    let tokens = raw
+        .split(|ch: char| ch == ',' || ch == '\t' || ch == '\n' || ch == '\r')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return Err("compensation override is empty".to_string());
+    }
+
+    let dimension = tokens[0]
+        .parse::<usize>()
+        .map_err(|_| "compensation override has an invalid dimension".to_string())?;
+    let expected = 1 + dimension + dimension * dimension;
+    if tokens.len() != expected {
+        return Err(format!(
+            "compensation override expected {expected} tokens but found {}",
+            tokens.len()
+        ));
+    }
+
+    let parameter_names = tokens[1..1 + dimension]
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect::<Vec<_>>();
+    let values = tokens[1 + dimension..]
+        .iter()
+        .map(|value| {
+            value
+                .parse::<f64>()
+                .map_err(|_| "compensation override contains an invalid float".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    validate_compensation_matrix_parts("override", dimension, parameter_names, values)
+}
+
+fn validate_compensation_matrix_parts(
+    source_key: &str,
+    dimension: usize,
+    parameter_names: Vec<String>,
+    values: Vec<f64>,
+) -> Result<CompensationMatrix, String> {
+    if dimension == 0 {
+        return Err("compensation matrix dimension must be positive".to_string());
+    }
+    if parameter_names.len() != dimension {
+        return Err(format!(
+            "compensation matrix dimension is {dimension} but {} parameter names were provided",
+            parameter_names.len()
+        ));
+    }
+    if parameter_names.iter().any(|name| name.trim().is_empty()) {
+        return Err("compensation matrix contains an empty parameter name".to_string());
+    }
+    let expected_value_count = dimension * dimension;
+    if values.len() != expected_value_count {
+        return Err(format!(
+            "compensation matrix expected {expected_value_count} values but found {}",
+            values.len()
+        ));
+    }
+    if values.iter().any(|value| !value.is_finite()) {
+        return Err("compensation matrix contains a non-finite value".to_string());
+    }
+
+    Ok(CompensationMatrix {
+        source_key: source_key.to_string(),
+        dimension,
+        parameter_names,
+        values,
+    })
 }
 
 fn transform_json(transform: &ChannelTransform) -> JsonValue {
@@ -6602,6 +6867,133 @@ mod tests {
                 .get("analysis_action_count")
                 .and_then(JsonValue::as_u64),
             Some(2)
+        );
+
+        let _ = fs::remove_file(sample_path);
+    }
+
+    #[test]
+    fn session_applies_manual_compensation_override_and_reports_qc_source() {
+        let sample_path = write_temp_test_fcs(
+            "override-comp-sample",
+            build_test_fcs(
+                vec!["FL1", "FL2", "SSC-A"],
+                vec![vec![110.0, 70.0, 10.0], vec![220.0, 140.0, 20.0]],
+                Some(("$SPILLOVER", "2,FL1,FL2,1,0.2,0,1")),
+            ),
+        );
+
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![JsonValue::String(
+            sample_path.to_string_lossy().to_string(),
+        )])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+
+        let override_payload = JsonValue::object([
+            (
+                "kind",
+                JsonValue::String("set_compensation_override".to_string()),
+            ),
+            (
+                "sample_id",
+                JsonValue::String("override-comp-sample".to_string()),
+            ),
+            (
+                "matrix_text",
+                JsonValue::String("2,FL1,FL2,1,0.4,0,1".to_string()),
+            ),
+        ])
+        .stringify_canonical();
+        let overridden = session.dispatch_json(&override_payload);
+        let overridden_sample = overridden.get("sample").expect("sample");
+        let overridden_qc = overridden_sample
+            .get("compensation_qc")
+            .expect("compensation qc");
+        assert_eq!(
+            overridden_sample
+                .get("compensation_override_active")
+                .and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            overridden_qc.get("source_kind").and_then(JsonValue::as_str),
+            Some("override")
+        );
+        assert_eq!(
+            overridden_qc.get("source_key").and_then(JsonValue::as_str),
+            Some("override")
+        );
+        assert_eq!(
+            overridden_qc
+                .get("off_diagonal_abs_max")
+                .and_then(JsonValue::as_f64),
+            Some(0.4)
+        );
+
+        let enable_payload = JsonValue::object([
+            (
+                "kind",
+                JsonValue::String("set_compensation_enabled".to_string()),
+            ),
+            (
+                "sample_id",
+                JsonValue::String("override-comp-sample".to_string()),
+            ),
+            ("enabled", JsonValue::Bool(true)),
+        ])
+        .stringify_canonical();
+        let enabled = session.dispatch_json(&enable_payload);
+        assert_eq!(
+            enabled
+                .get("sample")
+                .and_then(|sample| sample.get("compensation_qc"))
+                .and_then(|qc| qc.get("status"))
+                .and_then(JsonValue::as_str),
+            Some("ready")
+        );
+
+        let clear_payload = JsonValue::object([
+            (
+                "kind",
+                JsonValue::String("clear_compensation_override".to_string()),
+            ),
+            (
+                "sample_id",
+                JsonValue::String("override-comp-sample".to_string()),
+            ),
+        ])
+        .stringify_canonical();
+        let cleared = session.dispatch_json(&clear_payload);
+        let cleared_sample = cleared.get("sample").expect("sample");
+        let cleared_qc = cleared_sample
+            .get("compensation_qc")
+            .expect("compensation qc");
+        assert_eq!(
+            cleared_sample
+                .get("compensation_override_active")
+                .and_then(JsonValue::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            cleared_qc.get("source_kind").and_then(JsonValue::as_str),
+            Some("parsed")
+        );
+        assert_eq!(
+            cleared_qc
+                .get("off_diagonal_abs_max")
+                .and_then(JsonValue::as_f64),
+            Some(0.2)
+        );
+        assert_eq!(
+            cleared
+                .get("analysis_action_count")
+                .and_then(JsonValue::as_u64),
+            Some(3)
         );
 
         let _ = fs::remove_file(sample_path);

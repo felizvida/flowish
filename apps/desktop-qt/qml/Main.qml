@@ -20,6 +20,7 @@ ApplicationWindow {
     property string derivedMetricDraftNumeratorChannel: ""
     property string derivedMetricDraftDenominatorChannel: ""
     property string derivedMetricDraftThreshold: "1.00"
+    property bool figureExportInProgress: false
 
     function transformIndex(kind) {
         if (kind === "signed_log10")
@@ -70,6 +71,37 @@ ApplicationWindow {
                     plot.id || "",
                     Number(minText),
                     Number(maxText))
+    }
+
+    function safeFileStem(value) {
+        const text = String(value || "parallax-figure").trim().replace(/[^A-Za-z0-9._-]+/g, "_")
+        return text.length > 0 ? text : "parallax-figure"
+    }
+
+    function exportPlotCard(card, plot) {
+        const suggested = window.safeFileStem(plot.title || plot.id || "parallax-plot") + ".png"
+        const path = desktopController.chooseFigureExportPath(suggested)
+        if (path === "")
+            return
+
+        window.figureExportInProgress = true
+        Qt.callLater(function () {
+            const targetWidth = Math.max(1800, Math.round(card.width * 3))
+            const targetHeight = Math.max(1200, Math.round(card.height * 3))
+            card.grabToImage(function (result) {
+                const ok = result.saveToFile(path)
+                window.figureExportInProgress = false
+                if (!ok)
+                    desktopController.reportFigureExportFailure("Failed to save figure to " + path)
+            }, Qt.size(targetWidth, targetHeight))
+        })
+    }
+
+    function compensationOverrideExample() {
+        const channels = desktopController.sample.channels || []
+        if (channels.length >= 2)
+            return "2," + channels[0] + "," + channels[1] + ",1,0,0,1"
+        return "2,FITC-A,PE-A,1,0,0,1"
     }
 
     function formatPercent(value) {
@@ -723,7 +755,9 @@ ApplicationWindow {
                             }
 
                             CheckBox {
-                                text: desktopController.sample.compensation_available
+                                text: desktopController.sample.compensation_override_active
+                                      ? "Apply Compensation Override"
+                                      : desktopController.sample.compensation_available
                                       ? "Apply Parsed Compensation"
                                       : "No Compensation Matrix In Sample"
                                 enabled: desktopController.sample.compensation_available || false
@@ -735,6 +769,7 @@ ApplicationWindow {
                                 width: parent.width
                                 text: desktopController.sample.compensation_source_key
                                       ? "Source: " + desktopController.sample.compensation_source_key
+                                        + (desktopController.sample.compensation_override_active ? " (manual override)" : " (parsed from FCS)")
                                       : "Transforms and compensation are replayed before every gate redraw."
                                 color: "#6d5941"
                                 font.pixelSize: 13
@@ -807,6 +842,53 @@ ApplicationWindow {
                                             font.pixelSize: 12
                                             wrapMode: Text.WordWrap
                                         }
+                                    }
+                                }
+                            }
+
+                            Column {
+                                width: parent.width
+                                spacing: 6
+
+                                Text {
+                                    width: parent.width
+                                    text: "Manual Compensation Override"
+                                    color: "#2e2216"
+                                    font.pixelSize: 14
+                                    font.weight: Font.DemiBold
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    text: "Paste an FCS spillover string: dimension, channels, then row-major matrix values. Overrides are replayable and QC-checked before use."
+                                    color: "#6d5941"
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                TextArea {
+                                    id: compensationOverrideField
+                                    width: parent.width
+                                    height: 84
+                                    wrapMode: TextEdit.Wrap
+                                    selectByMouse: true
+                                    placeholderText: window.compensationOverrideExample()
+                                }
+
+                                Row {
+                                    spacing: 8
+
+                                    Button {
+                                        text: "Apply Override"
+                                        enabled: compensationOverrideField.text.trim().length > 0
+                                        onClicked: desktopController.setCompensationOverrideFromText(
+                                                       compensationOverrideField.text)
+                                    }
+
+                                    Button {
+                                        text: "Clear Override"
+                                        enabled: desktopController.sample.compensation_override_active || false
+                                        onClicked: desktopController.clearCompensationOverride()
                                     }
                                 }
                             }
@@ -1526,6 +1608,7 @@ ApplicationWindow {
                 spacing: 18
 
                 Rectangle {
+                    id: plotACard
                     Layout.fillWidth: true
                     Layout.preferredHeight: 1
                     Layout.fillHeight: true
@@ -1566,6 +1649,7 @@ ApplicationWindow {
 
                         RowLayout {
                             Layout.fillWidth: true
+                            visible: !window.figureExportInProgress
                             spacing: 8
 
                             Button {
@@ -1606,6 +1690,12 @@ ApplicationWindow {
                                 onClicked: desktopController.scalePlotView(plotA.id || "", 1.4)
                             }
 
+                            Button {
+                                text: "Export PNG"
+                                enabled: !window.figureExportInProgress
+                                onClicked: window.exportPlotCard(plotACard, plotA)
+                            }
+
                             Item { Layout.fillWidth: true }
 
                             Text {
@@ -1616,6 +1706,7 @@ ApplicationWindow {
                         }
 
                         Text {
+                            visible: !window.figureExportInProgress
                             text: window.plotHelperText(plotA)
                             color: "#8b6a3c"
                             font.pixelSize: 13
@@ -1624,6 +1715,7 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             visible: (plotA.kind || "") === "histogram"
+                                     && !window.figureExportInProgress
                             spacing: 8
 
                             Text {
@@ -1720,6 +1812,7 @@ ApplicationWindow {
                 }
 
                 Rectangle {
+                    id: plotBCard
                     Layout.fillWidth: true
                     Layout.preferredHeight: 1
                     Layout.fillHeight: true
@@ -1760,6 +1853,7 @@ ApplicationWindow {
 
                         RowLayout {
                             Layout.fillWidth: true
+                            visible: !window.figureExportInProgress
                             spacing: 8
 
                             Button {
@@ -1800,6 +1894,12 @@ ApplicationWindow {
                                 onClicked: desktopController.scalePlotView(plotB.id || "", 1.4)
                             }
 
+                            Button {
+                                text: "Export PNG"
+                                enabled: !window.figureExportInProgress
+                                onClicked: window.exportPlotCard(plotBCard, plotB)
+                            }
+
                             Item { Layout.fillWidth: true }
 
                             Text {
@@ -1810,6 +1910,7 @@ ApplicationWindow {
                         }
 
                         Text {
+                            visible: !window.figureExportInProgress
                             text: window.plotHelperText(plotB)
                             color: "#8b6a3c"
                             font.pixelSize: 13
@@ -1818,6 +1919,7 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             visible: (plotB.kind || "") === "histogram"
+                                     && !window.figureExportInProgress
                             spacing: 8
 
                             Text {
@@ -1914,6 +2016,7 @@ ApplicationWindow {
                 }
 
                 Rectangle {
+                    id: plotCCard
                     Layout.fillWidth: true
                     Layout.preferredHeight: 1
                     Layout.fillHeight: true
@@ -1955,6 +2058,7 @@ ApplicationWindow {
 
                         RowLayout {
                             Layout.fillWidth: true
+                            visible: !window.figureExportInProgress
                             spacing: 8
 
                             Button {
@@ -1995,6 +2099,12 @@ ApplicationWindow {
                                 onClicked: desktopController.scalePlotView(plotC.id || "", 1.4)
                             }
 
+                            Button {
+                                text: "Export PNG"
+                                enabled: !window.figureExportInProgress
+                                onClicked: window.exportPlotCard(plotCCard, plotC)
+                            }
+
                             Item { Layout.fillWidth: true }
 
                             Text {
@@ -2005,6 +2115,7 @@ ApplicationWindow {
                         }
 
                         Text {
+                            visible: !window.figureExportInProgress
                             text: window.plotHelperText(plotC)
                             color: "#8b6a3c"
                             font.pixelSize: 13
@@ -2013,6 +2124,7 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             visible: (plotC.kind || "") === "histogram"
+                                     && !window.figureExportInProgress
                             spacing: 8
 
                             Text {

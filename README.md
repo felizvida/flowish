@@ -8,7 +8,7 @@
 
 Parallax is a local-first cytometry workstation built around one shared Rust engine, an explicit command log, and a native Qt/QML desktop. It is designed for teams who care about speed, deterministic results, and a clean handoff between interactive desktop work and reproducible execution.
 
-Today, Parallax is an early but real workstation shell. You can launch the desktop, start from the bundled demo sample or import one or many `.fcs` files, switch between samples inside one local session, assign cohort labels to samples, author rectangle, polygon, quadrant, and histogram range gates, inspect a native histogram view for channel distributions, review per-population counts, frequencies, means, and medians, define replayable derived metrics such as positive fractions and mean ratios, compare the selected population across loaded samples, inspect grouped cohort summaries, export active-sample, selected-population, derived-metric, cohort-summary, or batch stats to CSV, apply replayable compensation and transform settings, adjust plot views through explicit view actions, inspect the command log, and undo or redo gate actions through the same replayable state model.
+Today, Parallax is an early but real workstation shell. You can launch the desktop, start from the bundled demo sample or import one or many `.fcs` files, switch between samples inside one local session, assign cohort labels to samples, author rectangle, polygon, quadrant, and histogram range gates, inspect a native histogram view for channel distributions, review per-population counts, frequencies, means, and medians, define replayable derived metrics such as positive fractions and mean ratios, compare the selected population across loaded samples, inspect grouped cohort summaries, export active-sample, selected-population, derived-metric, cohort-summary, or batch stats to CSV, apply or override compensation with QC feedback, export high-resolution PNG plot figures, adjust plot views through explicit view actions, inspect the command log, and undo or redo gate actions through the same replayable state model.
 
 ## Why Parallax
 
@@ -38,8 +38,9 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Qt/QML desktop with live rectangle, polygon, quadrant, and histogram range-gate authoring
 - Desktop FCS import and multi-sample switching in one local session
 - Workspace save/load that reopens sessions from sample sources plus replayable command history
-- Parsed FCS compensation toggle plus per-channel linear, signed-log10, asinh, biexponential, and logicle transform presets
+- Parsed FCS compensation toggle, manual spillover override with QC, plus per-channel linear, signed-log10, asinh, biexponential, and logicle transform presets
 - Native histogram panel with population-aware highlighting, drag-authored range gates, exact min/max threshold entry, and midpoint `Low Gate` / `High Gate` shortcuts
+- High-resolution PNG export for plot cards with interaction controls hidden during capture
 - Population stats panel with matched-event counts, parent/all frequencies, and per-channel mean/median summaries
 - CSV export for active-sample population stats
 - Active-sample gate-template application across the other loaded samples
@@ -57,8 +58,8 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Multi-factor cohort labels, group template tools, and richer cohort-review layouts are not implemented yet
 - Workspace persistence is source-path based today; bundled raw-data snapshots and derived caches are not implemented yet
 - Derived metrics are limited to positive fraction and mean ratio today; custom formula editors and spreadsheet-style expressions are not implemented yet
-- Compensation override editing, contour/density plot controls, and reference-matched transform tuning are not implemented yet
-- Gate editing handles, freeform pan, and figure/report export are not implemented yet
+- Contour/density plot controls and reference-matched transform tuning are not implemented yet
+- Gate editing handles, freeform pan, PDF/SVG figure export, and multi-panel report export are not implemented yet
 - Cloud sync, jobs, and AI assistance are future phases
 
 ## Repository Layout

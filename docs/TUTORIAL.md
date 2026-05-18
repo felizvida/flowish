@@ -8,7 +8,9 @@ By the end, you will:
 - create a child polygon gate
 - create a histogram range gate
 - apply a transform preset
+- review or override compensation when a real sample provides spillover metadata
 - refocus a plot on the active population
+- export a high-resolution plot PNG
 - inspect population stats and export them
 - configure and export a derived metric
 - inspect the resulting population hierarchy
@@ -127,6 +129,14 @@ Expected result:
 - the analysis history gains a new transform action
 - the workspace will remember the transform if you save it later
 
+If you are working with an imported file that includes compensation metadata, inspect `Compensation QC` in the same panel. Use `Apply Parsed Compensation` to apply the parsed FCS matrix. If the parsed matrix is wrong for the assay, paste a spillover string such as `2,FITC-A,PE-A,1,0.08,0.02,1` into `Manual Compensation Override` and click `Apply Override`.
+
+Expected result for an override:
+
+- QC marks the matrix source as a manual override
+- the analysis history gains a replayable compensation override action
+- plots, gates, stats, and derived metrics recompute from the overridden compensated values
+
 ## Step 8. Refocus A Plot
 
 Select your child population in the population list, then click `Focus` above one of the plots.
@@ -138,7 +148,17 @@ Expected result:
 - the workspace will remember this view action
 - if you focus the histogram panel instead, its x-range tightens around the selected population's distribution
 
-## Step 9. Inspect Population Stats
+## Step 9. Export A Plot Figure
+
+Click `Export PNG` above one of the plots and choose a destination.
+
+Expected result:
+
+- Parallax captures a high-resolution PNG of that plot card
+- interaction controls are hidden during the capture
+- the export keeps the plot title, axis label, highlighted count, and current gate overlays
+
+## Step 10. Inspect Population Stats
 
 Look at the `Population Stats` panel in the left rail while your child population is selected.
 
@@ -150,7 +170,7 @@ Expected result:
 
 If you want a file output, click `Export Stats CSV` and save the active sample's stats table.
 
-## Step 10. Configure A Derived Metric
+## Step 11. Configure A Derived Metric
 
 Use the `Derived Metric` panel in the left rail while your child population is still selected.
 
@@ -165,7 +185,7 @@ Expected result:
 - if you loaded multiple samples, the cohort summary also shows the cohort-level mean for that metric
 - `Export Derived Metric CSV` saves the selected population's derived-metric table
 
-## Step 11. Optional Batch Workflow
+## Step 12. Optional Batch Workflow
 
 If you imported more than one compatible sample, keep your current sample selected and click `Apply Template To Other Samples`.
 
@@ -183,7 +203,7 @@ Expected result:
 - you can click `Export Cohort Summary CSV` to save the grouped cohort summary
 - you can then click `Export Batch Stats CSV` to write one grouped table across all loaded samples
 
-## Step 12. Use Undo and Redo
+## Step 13. Use Undo and Redo
 
 Click `Undo`.
 
@@ -202,7 +222,7 @@ Expected result:
 
 Note that undo and redo currently apply to gate commands only. Transform and plot-view actions remain explicit session state, but are not yet part of the undo stack.
 
-## Step 13. Reset the Session
+## Step 14. Reset the Session
 
 Click `Reset Session`.
 
@@ -214,7 +234,7 @@ Expected result:
 
 This gives you a clean slate without restarting the application.
 
-## Step 14. Compare Against the CLI
+## Step 15. Compare Against the CLI
 
 If you want to see the same replay philosophy outside the desktop, run:
 
@@ -228,7 +248,7 @@ That command prints:
 - the execution hash
 - matched-event counts for the replayed populations
 
-## Step 15. Save The Session
+## Step 16. Save The Session
 
 Click `Save Workspace As` if you want to persist the current desktop session.
 
@@ -236,7 +256,7 @@ What gets saved:
 
 - the sample list and active sample
 - the command log for each sample
-- analysis settings such as transforms and parsed compensation
+- analysis settings such as transforms, parsed compensation, and manual compensation overrides
 - the active derived metric definition
 - plot-view actions such as focus and zoom
 - redo state for each sample

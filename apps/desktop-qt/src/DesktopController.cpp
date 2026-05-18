@@ -661,6 +661,35 @@ void DesktopController::setCompensationEnabled(bool enabled) {
         QJsonDocument(command).toJson(QJsonDocument::Compact)));
 }
 
+void DesktopController::setCompensationOverrideFromText(const QString &matrixText) {
+    const QString trimmed = matrixText.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Compensation override cannot be empty");
+        return;
+    }
+
+    QJsonObject command;
+    const QString sampleId = activeSampleId();
+    command.insert("kind", "set_compensation_override");
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("matrix_text", trimmed);
+    dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
+void DesktopController::clearCompensationOverride() {
+    QJsonObject command;
+    const QString sampleId = activeSampleId();
+    command.insert("kind", "clear_compensation_override");
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
 void DesktopController::setChannelTransform(const QString &channel, const QString &kind) {
     if (channel.trimmed().isEmpty()) {
         setLastError("Transform channel cannot be empty");
@@ -699,6 +728,28 @@ void DesktopController::setChannelTransform(const QString &channel, const QStrin
     command.insert("transform", transform);
     dispatchCommandJson(QString::fromUtf8(
         QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
+QString DesktopController::chooseFigureExportPath(const QString &suggestedName) {
+    QString candidate = suggestedName.trimmed();
+    if (candidate.isEmpty()) {
+        candidate = QStringLiteral("parallax-figure.png");
+    }
+    if (!candidate.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)) {
+        candidate.append(QStringLiteral(".png"));
+    }
+
+    return QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Export Publication Figure"),
+        candidate,
+        tr("PNG Images (*.png);;All Files (*)"));
+}
+
+void DesktopController::reportFigureExportFailure(const QString &message) {
+    setLastError(message.trimmed().isEmpty()
+                     ? QStringLiteral("Failed to export figure")
+                     : message.trimmed());
 }
 
 void DesktopController::resetPlotView(const QString &plotId) {

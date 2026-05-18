@@ -59,8 +59,10 @@ To work with real data:
 - choose one or more `.fcs` files
 - use the sample list in the left rail to switch between imported samples
 - if the sample includes a parsed spillover matrix, use `Apply Parsed Compensation`
+- paste an FCS spillover string into `Manual Compensation Override` when you need to replace the parsed matrix; QC will mark the source as an override
 - use the channel transform controls to switch between `Linear`, `Signed Log10`, `Asinh (150)`, `Biexponential`, and `Logicle`
 - use the `Auto`, `Focus`, `Zoom In`, and `Zoom Out` controls above each plot to adjust plot extents through replayable view actions
+- use `Export PNG` above a plot to capture a high-resolution figure with interaction controls hidden
 - look for an additional histogram panel when the sample has a suitable non-structural channel
 - review `Population Stats` in the left rail for counts, frequencies, means, and medians
 - use `Export Stats CSV` to write the active sample's population stats to disk
@@ -109,10 +111,12 @@ cargo run -p flowjoish-cli -- inspect-fcs /path/to/file.fcs
 - A populations list with `All Events`
 - A command log panel
 - Analysis settings for compensation and transforms
+- Compensation QC with parsed-vs-override source labeling
 - Derived metric controls for selected-population formulas
 - A population stats panel with channel summaries for the selected population
 - Batch template and batch stats export actions when multiple samples are loaded
 - Plot view controls for focus and zoom
+- Plot figure export buttons
 - Rectangle and polygon gating tools
 - Undo, redo, and reset controls
 

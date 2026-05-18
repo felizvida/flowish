@@ -86,7 +86,11 @@ public:
         const QString &numeratorChannel,
         const QString &denominatorChannel);
     Q_INVOKABLE void setCompensationEnabled(bool enabled);
+    Q_INVOKABLE void setCompensationOverrideFromText(const QString &matrixText);
+    Q_INVOKABLE void clearCompensationOverride();
     Q_INVOKABLE void setChannelTransform(const QString &channel, const QString &kind);
+    Q_INVOKABLE QString chooseFigureExportPath(const QString &suggestedName);
+    Q_INVOKABLE void reportFigureExportFailure(const QString &message);
     Q_INVOKABLE void resetPlotView(const QString &plotId);
     Q_INVOKABLE void focusPlotOnSelectedPopulation(const QString &plotId);
     Q_INVOKABLE void scalePlotView(const QString &plotId, double factor);

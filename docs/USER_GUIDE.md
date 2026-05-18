@@ -72,16 +72,28 @@ Parallax now includes replayed per-sample analysis settings ahead of gating and 
 Available controls today:
 
 - `Apply Parsed Compensation` when the imported sample includes a compensation matrix
+- `Manual Compensation Override` for pasted FCS spillover strings in the form `dimension,channel...,matrix values...`
+- `Clear Override` to return to the parsed FCS compensation matrix
 - per-channel transforms for `Linear`, `Signed Log10`, `Asinh (150)`, `Biexponential`, and `Logicle`
 
 How they behave:
 
 - compensation and transforms are replayed in Rust before every gate replay and plot refresh
+- manual overrides are stored as explicit analysis actions and are saved with the workspace
+- compensation QC reports whether the active matrix came from parsed FCS metadata or a manual override
 - the current settings are persisted in saved workspaces
 - the analysis history panel records those explicit actions separately from gate commands
 - undo and redo still operate on gate commands only in the current desktop
 
 The current `Biexponential` and `Logicle` options are fixed desktop presets rather than fully tunable reference-matched implementations.
+
+Override format example:
+
+```text
+2,FITC-A,PE-A,1,0.08,0.02,1
+```
+
+That example defines a two-channel matrix for `FITC-A` and `PE-A`, followed by the four row-major spillover values.
 
 ## Plot View Controls
 
@@ -96,6 +108,21 @@ How they behave:
 - plot-view actions are saved with the workspace and replayed after analysis settings and gates
 - if a focused population disappears because a gate is undone, the plot falls back to auto extents instead of breaking the session
 - gate undo and redo do not remove plot-view actions in the current desktop
+
+## Figure Export
+
+Each plot panel includes `Export PNG` for high-resolution figure capture.
+
+How it behaves:
+
+- Parallax opens a save dialog with a plot-derived file name
+- the export captures the plot card at roughly 3x on-screen resolution
+- interaction controls are hidden during the capture so the image includes the title, axis label, highlighted count, plot, and overlays without UI buttons
+- the output is a PNG suitable for manuscript drafts, slides, and lab notebooks
+
+Current limit:
+
+- PDF, SVG, multi-panel layout export, and journal-specific styling presets are still future work
 
 ## Histogram View
 
@@ -185,7 +212,7 @@ How it behaves:
 
 - batch template application validates the full gate log against every target sample before changing anything
 - applying the template replaces gate history on the other loaded samples and clears their redo/view state
-- each target sample keeps its own analysis settings such as transforms and parsed compensation
+- each target sample keeps its own analysis settings such as transforms, parsed compensation, and manual compensation overrides
 - cohort labels are saved in the workspace and travel with the local session metadata
 - the cross-sample comparison panel uses the active sample as the baseline and reports per-sample deltas for frequency of all events and of parent
 - the comparison panel also reports the active derived metric for each sample when it can be evaluated
@@ -290,7 +317,7 @@ Current implication:
 - The desktop now exercises the same deterministic engine against imported files, not only the demo sample
 - Workspace save/load now exists, but it depends on the original source files still being present on disk
 - There is still no bundled workspace format with cached derived data
-- compensation override editing, custom free-form formulas, richer grouped-comparison views, density views, and richer transform tuning are still ahead
+- custom free-form formulas, richer grouped-comparison views, density views, PDF/SVG figure export, and richer transform tuning are still ahead
 
 ## CLI and Backend
 
@@ -318,9 +345,8 @@ Parallax does not yet include:
 
 - Gate editing handles
 - Plot pan/zoom
-- Manual plot-range entry fields
 - Density plots
-- Figure and report export
+- PDF/SVG figure export and report export
 - Cloud sync
 
 Those features are planned, but the current product center is still fast, explicit, reproducible analysis interactions.
