@@ -102,7 +102,7 @@ This is the important Parallax idea: your analysis is represented as an ordered,
 
 ## Step 6. Create A Histogram Range Gate
 
-Drag horizontally across the histogram panel to define a one-channel range. For quick midpoint shortcuts, click `Low Gate` for the visible low half or `High Gate` for the visible high half.
+Drag horizontally across the histogram panel to define a one-channel range. For precise thresholds, type numeric values into the histogram panel's `Exact range` min/max fields and click `Apply Range`. For quick midpoint shortcuts, click `Low Gate` for the visible low half or `High Gate` for the visible high half.
 
 Expected result:
 

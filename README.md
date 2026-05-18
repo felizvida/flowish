@@ -38,7 +38,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Desktop FCS import and multi-sample switching in one local session
 - Workspace save/load that reopens sessions from sample sources plus replayable command history
 - Parsed FCS compensation toggle plus per-channel linear, signed-log10, asinh, biexponential, and logicle transform presets
-- Native histogram panel with population-aware highlighting plus drag-authored range gates and midpoint `Low Gate` / `High Gate` shortcuts
+- Native histogram panel with population-aware highlighting, drag-authored range gates, exact min/max threshold entry, and midpoint `Low Gate` / `High Gate` shortcuts
 - Population stats panel with matched-event counts, parent/all frequencies, and per-channel mean/median summaries
 - CSV export for active-sample population stats
 - Active-sample gate-template application across the other loaded samples

@@ -53,10 +53,23 @@ ApplicationWindow {
 
     function plotHelperText(plot) {
         if ((plot.kind || "") === "histogram")
-            return "Drag horizontally to create a histogram range gate, or use Low Gate / High Gate for midpoint shortcuts."
+            return "Drag horizontally, enter exact min/max thresholds, or use Low Gate / High Gate for midpoint shortcuts."
         return window.activeGateTool === "rectangle"
                 ? "Drag to author a rectangle gate on this projection"
                 : "Click to place polygon vertices, then right-click to finish"
+    }
+
+    function plotRangeBoundText(plot, boundName) {
+        const range = plot.x_range || {}
+        const numeric = Number(range[boundName])
+        return isFinite(numeric) ? numeric.toFixed(2) : ""
+    }
+
+    function commitNumericHistogramRange(plot, minText, maxText) {
+        return desktopController.createHistogramRangeGateForPlot(
+                    plot.id || "",
+                    Number(minText),
+                    Number(maxText))
     }
 
     function formatPercent(value) {
@@ -1225,7 +1238,7 @@ ApplicationWindow {
                             Text {
                                 width: parent.width
                                 text: window.activeGateTool === "rectangle"
-                                      ? "Drag on scatter plots for rectangle gates, drag across histograms for range gates, use Quadrants for four-way scatter splits, or use Low Gate / High Gate for midpoint histogram gates. Every gate is appended to the Rust command log and becomes a child of the currently selected population."
+                                      ? "Drag on scatter plots for rectangle gates, drag across histograms for range gates, enter exact histogram min/max thresholds, use Quadrants for four-way scatter splits, or use Low Gate / High Gate for midpoint histogram gates. Every gate is appended to the Rust command log and becomes a child of the currently selected population."
                                       : "Click to place polygon vertices on either plot, then right-click to commit. Right-click with fewer than three vertices clears the draft."
                                 color: "#6d5941"
                                 font.pixelSize: 13
@@ -1608,6 +1621,44 @@ ApplicationWindow {
                             font.pixelSize: 13
                         }
 
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: (plotA.kind || "") === "histogram"
+                            spacing: 8
+
+                            Text {
+                                text: "Exact range"
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                            }
+
+                            TextField {
+                                id: plotARangeMinField
+                                Layout.preferredWidth: 100
+                                text: window.plotRangeBoundText(plotA, "min")
+                                placeholderText: "Min"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotARangeMaxField
+                                Layout.preferredWidth: 100
+                                text: window.plotRangeBoundText(plotA, "max")
+                                placeholderText: "Max"
+                                selectByMouse: true
+                            }
+
+                            Button {
+                                text: "Apply Range"
+                                onClicked: window.commitNumericHistogramRange(
+                                               plotA,
+                                               plotARangeMinField.text,
+                                               plotARangeMaxField.text)
+                            }
+
+                            Item { Layout.fillWidth: true }
+                        }
+
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
@@ -1762,6 +1813,44 @@ ApplicationWindow {
                             text: window.plotHelperText(plotB)
                             color: "#8b6a3c"
                             font.pixelSize: 13
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: (plotB.kind || "") === "histogram"
+                            spacing: 8
+
+                            Text {
+                                text: "Exact range"
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                            }
+
+                            TextField {
+                                id: plotBRangeMinField
+                                Layout.preferredWidth: 100
+                                text: window.plotRangeBoundText(plotB, "min")
+                                placeholderText: "Min"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotBRangeMaxField
+                                Layout.preferredWidth: 100
+                                text: window.plotRangeBoundText(plotB, "max")
+                                placeholderText: "Max"
+                                selectByMouse: true
+                            }
+
+                            Button {
+                                text: "Apply Range"
+                                onClicked: window.commitNumericHistogramRange(
+                                               plotB,
+                                               plotBRangeMinField.text,
+                                               plotBRangeMaxField.text)
+                            }
+
+                            Item { Layout.fillWidth: true }
                         }
 
                         Rectangle {
@@ -1919,6 +2008,44 @@ ApplicationWindow {
                             text: window.plotHelperText(plotC)
                             color: "#8b6a3c"
                             font.pixelSize: 13
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: (plotC.kind || "") === "histogram"
+                            spacing: 8
+
+                            Text {
+                                text: "Exact range"
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                            }
+
+                            TextField {
+                                id: plotCRangeMinField
+                                Layout.preferredWidth: 100
+                                text: window.plotRangeBoundText(plotC, "min")
+                                placeholderText: "Min"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotCRangeMaxField
+                                Layout.preferredWidth: 100
+                                text: window.plotRangeBoundText(plotC, "max")
+                                placeholderText: "Max"
+                                selectByMouse: true
+                            }
+
+                            Button {
+                                text: "Apply Range"
+                                onClicked: window.commitNumericHistogramRange(
+                                               plotC,
+                                               plotCRangeMinField.text,
+                                               plotCRangeMaxField.text)
+                            }
+
+                            Item { Layout.fillWidth: true }
                         }
 
                         Rectangle {

@@ -107,10 +107,11 @@ How it behaves today:
 - the active population highlights its own per-bin counts on top of the full distribution
 - the histogram responds to `Auto`, `Focus`, `Zoom In`, and `Zoom Out` like the scatter plots
 - dragging horizontally across the histogram creates a replayable one-channel `range_gate`
+- `Exact range` fields create a replayable `range_gate` from typed numeric min/max thresholds
 - `Low Gate` creates the same command type from the visible minimum to the midpoint of the current histogram view
 - `High Gate` creates the same command type from the midpoint of the current histogram view to the visible maximum
 - committed histogram range gates appear as translucent overlays, with the selected population emphasized
-- histogram panels do not yet support editable threshold handles
+- histogram panels do not yet support draggable editable threshold handles
 
 Parallax currently chooses the histogram channel automatically, preferring a non-time, non-structural analysis channel such as a fluorescence marker when available.
 
@@ -246,6 +247,7 @@ What happens next:
 
 - Parallax creates a `range_gate` on the histogram channel
 - If you drag across the histogram, the drag start/end define the lower and upper bounds
+- If you type into `Exact range`, those min/max thresholds define the lower and upper bounds
 - If you click `Low Gate`, the lower bound is the current visible minimum and the upper bound is the midpoint of the current visible histogram range
 - If you click `High Gate`, the lower bound is the midpoint of the current visible histogram range and the upper bound is the current visible maximum
 - The new population is selected immediately so the histogram highlights its gated bins
