@@ -55,7 +55,7 @@ That foundation is valuable, but it is not yet enough for real lab adoption.
 | Publication-quality figure export | Jack Waite, Deliang Zhang, Anup Dey, Chad Williamson, Guillaume Gaud all mention figure generation for meetings and manuscripts | Publication-grade output is a central reason people use FlowJo | Not implemented | P1 | EPIC F |
 | Comparison workflows across samples and conditions | Jack Waite, Jack Yanovski, Antony Cougnoux, Guillaume Gaud, Tina Maio all compare treated vs control, time points, or longitudinal cohorts | A single-sample tool is insufficient for modern biology workflows | Partial. The desktop can now compare the selected population across loaded samples, assign cohort labels, aggregate cohort-level summaries, and export those views, but it still lacks multi-factor group metadata and richer cohort visual layouts | P1 | EPIC G |
 | Gate editing, quadrant gates, and navigation polish | Daily users need to refine gates precisely and quickly across projections | Initial gate creation alone is not enough for expert analysis | Partial. Rectangle, polygon, quadrant, and histogram range gates now create replayable populations, histograms support exact numeric min/max threshold entry, and plot views support auto/focus/zoom actions, but editable handles and freeform pan are still missing | P1 | EPIC H |
-| Parser compatibility with real instrument output | Deliang Zhang cites broad file compatibility; Pedro Pereira Da Rocha points out lack of viable alternatives | If authentic cytometer files fail to load, trust collapses immediately | Partial. The authentic suite has 39 files with 10 known expected failures | P0 | EPIC I |
+| Parser compatibility with real instrument output | Deliang Zhang cites broad file compatibility; Pedro Pereira Da Rocha points out lack of viable alternatives | If authentic cytometer files fail to load, trust collapses immediately | Partial. The authentic suite now passes `39/39` pinned public files under `--require-all-pass`, but the corpus still needs to grow toward `100+` files across more vendors and edge cases | P0 | EPIC I |
 | Reproducibility and audit trail at workspace level | Marcela Teatin Latancia, Jack Yanovski, Deliang Zhang, Chad Williamson all emphasize consistency and reproducibility | The command log is a strong start, but users need saved and exportable analysis lineage | Partial. Command replay exists, but workspace persistence and report export do not | P1 | EPIC D |
 
 ## Evidence-Led Prioritization
@@ -71,7 +71,7 @@ The testimonies point to a very clear order of operations.
 - histogram and density plots
 - workspace save/load
 - batch templates and template application
-- parser compatibility improvement on authentic public files
+- parser compatibility expansion from the current `39/39` authentic public-file gate toward a broader `100+` file corpus
 
 ### P1: Required soon after P0 for real lab adoption
 
@@ -210,7 +210,7 @@ Deliver:
 
 Acceptance:
 
-- convert current expected failures to passing cases deliberately
+- keep the current expected-failure count at zero
 - maintain zero unexpected regressions in the authentic suite
 
 ## Immediate Recommendation

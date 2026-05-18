@@ -267,8 +267,7 @@ fn parse_text_segment(segment: &[u8]) -> Result<BTreeMap<String, String>, FcsErr
                 index += 2;
                 continue;
             }
-            let text = String::from_utf8(current.clone())
-                .map_err(|error| FcsError::Utf8(error.to_string()))?;
+            let text = decode_text_token(&current);
             tokens.push(text);
             current.clear();
             index += 1;
@@ -279,9 +278,22 @@ fn parse_text_segment(segment: &[u8]) -> Result<BTreeMap<String, String>, FcsErr
     }
 
     if !current.is_empty() {
-        return Err(FcsError::InvalidText(
-            "TEXT segment did not terminate cleanly".to_string(),
-        ));
+        if current
+            .iter()
+            .all(|byte| byte.is_ascii_whitespace() || *byte == 0)
+        {
+            // Some vendors pad the declared TEXT segment after the final delimiter.
+        } else if is_printable_text_token(&current) && tokens.len() % 2 == 1 {
+            tokens.push(decode_text_token(&current));
+        } else if is_likely_metadata_key(&current) && tokens.len() % 2 == 0 {
+            // A few exports end with an unterminated vendor-private key after all
+            // required key/value pairs. Dropping that dangling key is safer than
+            // rejecting otherwise intact event data.
+        } else {
+            return Err(FcsError::InvalidText(
+                "TEXT segment did not terminate cleanly".to_string(),
+            ));
+        }
     }
 
     if tokens.len() % 2 != 0 {
@@ -295,6 +307,23 @@ fn parse_text_segment(segment: &[u8]) -> Result<BTreeMap<String, String>, FcsErr
         metadata.insert(pair[0].clone(), pair[1].clone());
     }
     Ok(metadata)
+}
+
+fn decode_text_token(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(value) => value.to_string(),
+        Err(_) => bytes.iter().map(|byte| char::from(*byte)).collect(),
+    }
+}
+
+fn is_printable_text_token(bytes: &[u8]) -> bool {
+    bytes
+        .iter()
+        .all(|byte| *byte >= 0x20 || matches!(*byte, b'\t' | b'\r' | b'\n'))
+}
+
+fn is_likely_metadata_key(bytes: &[u8]) -> bool {
+    is_printable_text_token(bytes) && matches!(bytes.first(), Some(b'$' | b'&'))
 }
 
 fn required_metadata<'a>(
@@ -330,13 +359,24 @@ fn optional_u32(metadata: &BTreeMap<String, String>, key: &str) -> Result<Option
 
 fn optional_u64(metadata: &BTreeMap<String, String>, key: &str) -> Result<Option<u64>, FcsError> {
     match metadata.get(key) {
-        Some(value) => value
-            .trim()
-            .parse::<u64>()
+        Some(value) => parse_numeric_range(value)
             .map(Some)
-            .map_err(|_| FcsError::InvalidText(format!("invalid integer metadata '{key}'"))),
+            .map_err(|_| FcsError::InvalidText(format!("invalid numeric metadata '{key}'"))),
         None => Ok(None),
     }
+}
+
+fn parse_numeric_range(value: &str) -> Result<u64, ()> {
+    let trimmed = value.trim();
+    if let Ok(parsed) = trimmed.parse::<u64>() {
+        return Ok(parsed);
+    }
+
+    let parsed = trimmed.parse::<f64>().map_err(|_| ())?;
+    if !parsed.is_finite() || parsed < 0.0 || parsed > u64::MAX as f64 {
+        return Err(());
+    }
+    Ok(parsed.ceil() as u64)
 }
 
 fn resolve_offset(
@@ -404,6 +444,9 @@ fn parse_compensation(
         .parse::<usize>()
         .map_err(|_| FcsError::InvalidCompensation("invalid spillover dimension".to_string()))?;
     let expected = 1 + dimension + dimension * dimension;
+    if tokens.len() == 1 + dimension {
+        return Ok(None);
+    }
     if tokens.len() != expected {
         return Err(FcsError::InvalidCompensation(format!(
             "spillover entry expected {expected} tokens but found {}",
@@ -582,6 +625,19 @@ mod tests {
     }
 
     #[test]
+    fn ignores_incomplete_spillover_entries_without_matrix_values() {
+        let bytes = build_test_fcs(
+            vec!["FITC-A", "PE-A"],
+            vec![vec![1.0, 2.0]],
+            Some(("$SPILLOVER", "2,FITC-A,PE-A")),
+        );
+
+        let parsed = parse(&bytes).expect("incomplete spillover metadata should not block events");
+        assert_eq!(parsed.compensation, None);
+        assert_eq!(parsed.events, vec![vec![1.0, 2.0]]);
+    }
+
+    #[test]
     fn converts_to_core_sample_frame() {
         let bytes = build_test_fcs(vec!["CD3", "CD3"], vec![vec![5.0, 6.0]], None);
         let parsed = parse(&bytes).expect("valid fcs");
@@ -601,6 +657,45 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn parses_text_segments_with_trailing_padding() {
+        let metadata = super::parse_text_segment(b"/$TOT/1/$PAR/2/        ")
+            .expect("trailing padding after the final delimiter is recoverable");
+
+        assert_eq!(metadata.get("$TOT"), Some(&"1".to_string()));
+        assert_eq!(metadata.get("$PAR"), Some(&"2".to_string()));
+    }
+
+    #[test]
+    fn parses_text_segments_with_unclosed_final_values() {
+        let metadata = super::parse_text_segment(b"/$TOT/1/$SRC/final value")
+            .expect("a printable final value can be recovered without a closing delimiter");
+
+        assert_eq!(metadata.get("$SRC"), Some(&"final value".to_string()));
+    }
+
+    #[test]
+    fn ignores_trailing_dangling_private_metadata_keys() {
+        let metadata = super::parse_text_segment(b"/$TOT/1/&13Analysis Doc.\\")
+            .expect("dangling vendor-private keys after complete pairs are recoverable");
+
+        assert_eq!(metadata.get("$TOT"), Some(&"1".to_string()));
+        assert_eq!(metadata.get("&13Analysis Doc.\\"), None);
+    }
+
+    #[test]
+    fn decodes_non_utf8_text_tokens_as_latin1() {
+        let metadata = super::parse_text_segment(b"/$SRC/caf\xe9/")
+            .expect("vendor Latin-1 metadata is recoverable");
+
+        assert_eq!(metadata.get("$SRC"), Some(&"café".to_string()));
+    }
+
+    #[test]
+    fn parses_decimal_channel_ranges_lossily_for_summary_metadata() {
+        assert_eq!(super::parse_numeric_range("23.4094"), Ok(24));
     }
 
     fn build_test_fcs(

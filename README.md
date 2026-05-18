@@ -34,6 +34,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 
 - Deterministic gating and replay in a shared Rust core
 - FCS parsing crate for ingestion and metadata inspection
+- Authentic public FCS compatibility gate with `39/39` pinned files passing under `--require-all-pass`
 - Qt/QML desktop with live rectangle, polygon, quadrant, and histogram range-gate authoring
 - Desktop FCS import and multi-sample switching in one local session
 - Workspace save/load that reopens sessions from sample sources plus replayable command history
@@ -95,6 +96,12 @@ Hydrate and run the authentic public FCS suite:
 
 ```bash
 python3 scripts/real_world_fcs_suite.py
+```
+
+Run the same no-regression gate used by CI:
+
+```bash
+python3 scripts/real_world_fcs_suite.py --require-all-pass
 ```
 
 Reuse local source checkouts when you already have them:

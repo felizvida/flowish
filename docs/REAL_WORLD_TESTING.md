@@ -13,6 +13,7 @@ The suite lives in:
 - `3` pinned upstream sources: `fcsparser`, `FlowIO`, and `FlowCal`
 - mixed vendors and exporters: BD, Cytek, Guava, Miltenyi, Attune-derived files, and FlowCal's documented E. coli plus calibration-bead tutorial experiment
 - mixed formats and payloads: `FCS2.0`, `FCS3.0`, `FCS3.1`, integer and float data, big and little endian, files with and without compensation matrices
+- current compatibility target: `39/39` files pass under `--require-all-pass`
 
 The manifest stores, for every dataset:
 
@@ -22,17 +23,15 @@ The manifest stores, for every dataset:
 - provenance note
 - expected parser outcome for the current Parallax parser
 
-## Why Some Files Are Expected To Fail
+## Compatibility Gate
 
 This suite is meant to tell the truth about the current parser, not flatter it.
 
-Today the manifest contains `10` authentic files that Parallax still fails to parse cleanly. Those expected failures are tracked on purpose so we can:
+The manifest currently has no expected parser failures. Every authentic file is expected to parse cleanly, and CI runs the suite with `--require-all-pass`.
 
-- prevent silent regressions on files that already work
-- keep pressure on the parser gaps that matter in real labs
-- flip failures to passes deliberately as the parser improves
+If a new authentic file exposes a known gap, prefer fixing the parser immediately. If an expected failure is unavoidable for a short period, document the failure in the manifest and open a tracking issue in the same change.
 
-Use `--require-all-pass` when you want the suite to fail on those known gaps.
+The long-term direction is to grow this corpus past `100` authentic files while preserving a zero-regression gate.
 
 ## Quick Start
 
@@ -42,10 +41,10 @@ Build the CLI once:
 cargo build -p flowjoish-cli
 ```
 
-Hydrate the local cache from local source checkouts and run the full suite:
+Hydrate the local cache from local source checkouts and run the full compatibility gate:
 
 ```bash
-python3 scripts/real_world_fcs_suite.py
+python3 scripts/real_world_fcs_suite.py --require-all-pass
 ```
 
 Prefer local source checkouts when you already have them:
@@ -63,7 +62,7 @@ Run only one dataset:
 python3 scripts/real_world_fcs_suite.py --dataset flowio-b01-kc-a-w-91-us
 ```
 
-Treat every authentic parser failure as a hard failure:
+Run the same parser gate used by CI:
 
 ```bash
 python3 scripts/real_world_fcs_suite.py --require-all-pass
