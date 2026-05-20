@@ -23,6 +23,7 @@ class HistogramPlotItem : public QQuickItem {
     Q_PROPERTY(double xMax READ xMax WRITE setXMax NOTIFY plotRangeChanged)
     Q_PROPERTY(double yMin READ yMin WRITE setYMin NOTIFY plotRangeChanged)
     Q_PROPERTY(double yMax READ yMax WRITE setYMax NOTIFY plotRangeChanged)
+    Q_PROPERTY(QString interactionMode READ interactionMode WRITE setInteractionMode NOTIFY interactionModeChanged)
 
 public:
     explicit HistogramPlotItem(QQuickItem *parent = nullptr);
@@ -35,6 +36,7 @@ public:
     double xMax() const;
     double yMin() const;
     double yMax() const;
+    QString interactionMode() const;
 
     void setAllBins(const QVariantList &bins);
     void setHighlightBins(const QVariantList &bins);
@@ -44,6 +46,7 @@ public:
     void setXMax(double value);
     void setYMin(double value);
     void setYMax(double value);
+    void setInteractionMode(const QString &mode);
 
 signals:
     void allBinsChanged();
@@ -51,7 +54,9 @@ signals:
     void rangeOverlaysChanged();
     void selectedPopulationKeyChanged();
     void plotRangeChanged();
+    void interactionModeChanged();
     void rangeGateDrawn(double min, double max);
+    void plotPanned(double xDelta);
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *updatePaintNodeData) override;
@@ -73,6 +78,7 @@ private:
     QRectF selectionRect() const;
     double mapPlotXToData(double x, const QRectF &bounds, const QRectF &plotArea) const;
     QRectF mapBinToPlot(const QRectF &dataRect, const QRectF &bounds, const QRectF &plotArea) const;
+    bool isPanMode() const;
     QSGGeometryNode *buildSelectionNode(const QRectF &selectionRect) const;
     QSGGeometryNode *buildSelectionNode(const QRectF &selectionRect, const QColor &color) const;
     QSGGeometryNode *buildRangeOverlayNode(
@@ -97,6 +103,7 @@ private:
     double xMax_ = 1.0;
     double yMin_ = 0.0;
     double yMax_ = 1.0;
+    QString interactionMode_ = "rectangle";
     bool dragging_ = false;
     QPointF dragStart_;
     QPointF dragCurrent_;

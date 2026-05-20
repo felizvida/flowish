@@ -192,7 +192,12 @@ void ScatterPlotItem::setYMax(double value) {
 
 void ScatterPlotItem::setInteractionMode(const QString &mode) {
     const QString normalized = mode.trimmed().toLower();
-    const QString nextMode = normalized == "polygon" ? QStringLiteral("polygon") : QStringLiteral("rectangle");
+    QString nextMode = QStringLiteral("rectangle");
+    if (normalized == "polygon") {
+        nextMode = QStringLiteral("polygon");
+    } else if (normalized == "pan") {
+        nextMode = QStringLiteral("pan");
+    }
     if (interactionMode_ == nextMode) {
         return;
     }
@@ -246,7 +251,7 @@ QSGNode *ScatterPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData 
             root->appendChildNode(buildPolylineNode(overlay.vertices, QColor("#ef8354"), bounds, plotArea));
         }
     }
-    if (dragging_) {
+    if (dragging_ && !isPanMode()) {
         const QRectF activeSelection = selectionRect();
         if (activeSelection.width() >= 1.0 && activeSelection.height() >= 1.0) {
             root->appendChildNode(buildSelectionNode(activeSelection));
@@ -346,6 +351,23 @@ void ScatterPlotItem::mouseReleaseEvent(QMouseEvent *event) {
     dragCurrent_ = event->localPos();
     const QRectF plotArea = plotRect();
     const QRectF bounds = dataRect();
+    if (isPanMode()) {
+        const bool validPan =
+            qAbs(dragCurrent_.x() - dragStart_.x()) >= kMinimumDragPixels
+            || qAbs(dragCurrent_.y() - dragStart_.y()) >= kMinimumDragPixels;
+        dragging_ = false;
+        update();
+
+        if (validPan) {
+            const QPointF startData = mapPlotToData(dragStart_, bounds, plotArea);
+            const QPointF endData = mapPlotToData(dragCurrent_, bounds, plotArea);
+            emit plotPanned(startData.x() - endData.x(), startData.y() - endData.y());
+        }
+
+        event->accept();
+        return;
+    }
+
     const QRectF activeSelection = selectionRect();
     const bool validSelection = activeSelection.width() >= kMinimumDragPixels
         && activeSelection.height() >= kMinimumDragPixels;
@@ -531,6 +553,10 @@ QPointF ScatterPlotItem::mapPlotToData(
 
 bool ScatterPlotItem::isPolygonMode() const {
     return interactionMode_ == "polygon";
+}
+
+bool ScatterPlotItem::isPanMode() const {
+    return interactionMode_ == "pan";
 }
 
 void ScatterPlotItem::clearInteractionDraft() {

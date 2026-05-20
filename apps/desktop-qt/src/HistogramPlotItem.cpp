@@ -56,6 +56,10 @@ double HistogramPlotItem::yMax() const {
     return yMax_;
 }
 
+QString HistogramPlotItem::interactionMode() const {
+    return interactionMode_;
+}
+
 void HistogramPlotItem::setAllBins(const QVariantList &bins) {
     if (bins == allBins_) {
         return;
@@ -140,6 +144,20 @@ void HistogramPlotItem::setYMax(double value) {
     emit plotRangeChanged();
 }
 
+void HistogramPlotItem::setInteractionMode(const QString &mode) {
+    const QString normalized = mode.trimmed().toLower();
+    const QString nextMode =
+        normalized == "pan" ? QStringLiteral("pan") : QStringLiteral("rectangle");
+    if (interactionMode_ == nextMode) {
+        return;
+    }
+
+    interactionMode_ = nextMode;
+    dragging_ = false;
+    update();
+    emit interactionModeChanged();
+}
+
 QSGNode *HistogramPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) {
     auto *root = oldNode != nullptr ? oldNode : new QSGNode();
     while (QSGNode *child = root->firstChild()) {
@@ -175,7 +193,7 @@ QSGNode *HistogramPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
             root->appendChildNode(buildRangeOverlayNode(overlay, color, bounds, plotArea));
         }
     }
-    if (dragging_) {
+    if (dragging_ && !isPanMode()) {
         const QRectF activeSelection = selectionRect();
         if (activeSelection.width() >= 1.0) {
             root->appendChildNode(buildSelectionNode(activeSelection));
@@ -222,6 +240,17 @@ void HistogramPlotItem::mouseReleaseEvent(QMouseEvent *event) {
 
     dragging_ = false;
     update();
+
+    if (isPanMode()) {
+        if (validSelection) {
+            const double startData = mapPlotXToData(dragStart_.x(), bounds, plotArea);
+            const double endData = mapPlotXToData(dragCurrent_.x(), bounds, plotArea);
+            emit plotPanned(startData - endData);
+        }
+
+        event->accept();
+        return;
+    }
 
     if (validSelection) {
         emit rangeGateDrawn(
@@ -310,6 +339,10 @@ double HistogramPlotItem::mapPlotXToData(
     const qreal clampedX = qBound(plotArea.left(), x, plotArea.right());
     const qreal xNorm = (clampedX - plotArea.left()) / plotArea.width();
     return bounds.left() + (xNorm * bounds.width());
+}
+
+bool HistogramPlotItem::isPanMode() const {
+    return interactionMode_ == "pan";
 }
 
 QRectF HistogramPlotItem::mapBinToPlot(

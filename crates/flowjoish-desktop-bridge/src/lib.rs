@@ -172,6 +172,12 @@ enum ViewAction {
         plot_id: String,
         factor: f64,
     },
+    PanPlotView {
+        sample_id: String,
+        plot_id: String,
+        x_delta: f64,
+        y_delta: f64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -515,6 +521,7 @@ impl ViewAction {
             Self::ResetPlotView { .. } => "reset_plot_view",
             Self::FocusPlotPopulation { .. } => "focus_plot_population",
             Self::ScalePlotView { .. } => "scale_plot_view",
+            Self::PanPlotView { .. } => "pan_plot_view",
         }
     }
 
@@ -522,7 +529,8 @@ impl ViewAction {
         match self {
             Self::ResetPlotView { sample_id, .. }
             | Self::FocusPlotPopulation { sample_id, .. }
-            | Self::ScalePlotView { sample_id, .. } => sample_id,
+            | Self::ScalePlotView { sample_id, .. }
+            | Self::PanPlotView { sample_id, .. } => sample_id,
         }
     }
 
@@ -530,7 +538,8 @@ impl ViewAction {
         match self {
             Self::ResetPlotView { plot_id, .. }
             | Self::FocusPlotPopulation { plot_id, .. }
-            | Self::ScalePlotView { plot_id, .. } => plot_id,
+            | Self::ScalePlotView { plot_id, .. }
+            | Self::PanPlotView { plot_id, .. } => plot_id,
         }
     }
 
@@ -569,6 +578,18 @@ impl ViewAction {
                 ("plot_id", JsonValue::String(plot_id.clone())),
                 ("factor", JsonValue::Number(*factor)),
             ]),
+            Self::PanPlotView {
+                sample_id,
+                plot_id,
+                x_delta,
+                y_delta,
+            } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind().to_string())),
+                ("sample_id", JsonValue::String(sample_id.clone())),
+                ("plot_id", JsonValue::String(plot_id.clone())),
+                ("x_delta", JsonValue::Number(*x_delta)),
+                ("y_delta", JsonValue::Number(*y_delta)),
+            ]),
         }
     }
 
@@ -595,6 +616,18 @@ impl ViewAction {
                     .get("factor")
                     .and_then(JsonValue::as_f64)
                     .ok_or_else(|| "missing field 'factor'".to_string())?,
+            }),
+            "pan_plot_view" => Ok(Self::PanPlotView {
+                sample_id: required_json_string(value, "sample_id")?.to_string(),
+                plot_id: required_json_string(value, "plot_id")?.to_string(),
+                x_delta: value
+                    .get("x_delta")
+                    .and_then(JsonValue::as_f64)
+                    .ok_or_else(|| "missing field 'x_delta'".to_string())?,
+                y_delta: value
+                    .get("y_delta")
+                    .and_then(JsonValue::as_f64)
+                    .unwrap_or(0.0),
             }),
             other => Err(format!("unknown view action kind '{other}'")),
         }
@@ -704,6 +737,21 @@ impl ViewActionLog {
                                 )
                             })?;
                     scale_plot_range(&current, *factor)?
+                }
+                ViewAction::PanPlotView {
+                    x_delta, y_delta, ..
+                } => {
+                    let current =
+                        ranges
+                            .get(record.action.plot_id())
+                            .cloned()
+                            .ok_or_else(|| {
+                                format!(
+                                    "missing active range for plot '{}'",
+                                    record.action.plot_id()
+                                )
+                            })?;
+                    pan_plot_range(&current, *x_delta, *y_delta)?
                 }
             };
             ranges.insert(record.action.plot_id().to_string(), next_range);
@@ -1115,7 +1163,10 @@ impl DesktopSession {
             | Some("set_channel_transform") => {
                 return self.dispatch_analysis_json(&value);
             }
-            Some("reset_plot_view") | Some("focus_plot_population") | Some("scale_plot_view") => {
+            Some("reset_plot_view")
+            | Some("focus_plot_population")
+            | Some("scale_plot_view")
+            | Some("pan_plot_view") => {
                 return self.dispatch_view_json(&value);
             }
             Some("quadrant_gate") => {
@@ -6182,6 +6233,33 @@ fn scale_plot_range(range: &PlotRangeState, factor: f64) -> Result<PlotRangeStat
     })
 }
 
+fn pan_plot_range(
+    range: &PlotRangeState,
+    x_delta: f64,
+    y_delta: f64,
+) -> Result<PlotRangeState, String> {
+    if !x_delta.is_finite() || !y_delta.is_finite() {
+        return Err("plot pan deltas must be finite numbers".to_string());
+    }
+
+    let next = PlotRangeState {
+        x_min: range.x_min + x_delta,
+        x_max: range.x_max + x_delta,
+        y_min: range.y_min + y_delta,
+        y_max: range.y_max + y_delta,
+        summary: "Panned view".to_string(),
+    };
+    if !next.x_min.is_finite()
+        || !next.x_max.is_finite()
+        || !next.y_min.is_finite()
+        || !next.y_max.is_finite()
+    {
+        return Err("plot pan produced a non-finite range".to_string());
+    }
+
+    Ok(next)
+}
+
 fn plot_bounds(
     sample: &SampleFrame,
     x_index: usize,
@@ -7711,6 +7789,61 @@ mod tests {
                 .and_then(|plot| plot.get("view_summary"))
                 .and_then(JsonValue::as_str),
             Some("Zoomed out (1.40x)")
+        );
+        let zoomed_x_min = zoomed
+            .get("plots")
+            .and_then(JsonValue::as_array)
+            .and_then(|plots| plots.first())
+            .and_then(|plot| plot.get("x_range"))
+            .and_then(|range| range.get("min"))
+            .and_then(JsonValue::as_f64)
+            .expect("zoomed x min");
+        let zoomed_y_min = zoomed
+            .get("plots")
+            .and_then(JsonValue::as_array)
+            .and_then(|plots| plots.first())
+            .and_then(|plot| plot.get("y_range"))
+            .and_then(|range| range.get("min"))
+            .and_then(JsonValue::as_f64)
+            .expect("zoomed y min");
+
+        let pan_payload = JsonValue::object([
+            ("kind", JsonValue::String("pan_plot_view".to_string())),
+            ("sample_id", JsonValue::String("view-sample".to_string())),
+            ("plot_id", JsonValue::String("plot_fsc_a_ssc_a".to_string())),
+            ("x_delta", JsonValue::Number(2.5)),
+            ("y_delta", JsonValue::Number(-1.25)),
+        ])
+        .stringify_canonical();
+        let panned = session.dispatch_json(&pan_payload);
+        assert_eq!(
+            panned
+                .get("plots")
+                .and_then(JsonValue::as_array)
+                .and_then(|plots| plots.first())
+                .and_then(|plot| plot.get("view_summary"))
+                .and_then(JsonValue::as_str),
+            Some("Panned view")
+        );
+        assert_eq!(
+            panned
+                .get("plots")
+                .and_then(JsonValue::as_array)
+                .and_then(|plots| plots.first())
+                .and_then(|plot| plot.get("x_range"))
+                .and_then(|range| range.get("min"))
+                .and_then(JsonValue::as_f64),
+            Some(zoomed_x_min + 2.5)
+        );
+        assert_eq!(
+            panned
+                .get("plots")
+                .and_then(JsonValue::as_array)
+                .and_then(|plots| plots.first())
+                .and_then(|plot| plot.get("y_range"))
+                .and_then(|range| range.get("min"))
+                .and_then(JsonValue::as_f64),
+            Some(zoomed_y_min - 1.25)
         );
 
         let _ = fs::remove_file(sample_path);

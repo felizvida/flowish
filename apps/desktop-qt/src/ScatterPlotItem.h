@@ -69,6 +69,7 @@ signals:
     void interactionModeChanged();
     void rectangleGateDrawn(double xMin, double xMax, double yMin, double yMax);
     void polygonGateDrawn(const QVariantList &vertices);
+    void plotPanned(double xDelta, double yDelta);
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *updatePaintNodeData) override;
@@ -98,6 +99,7 @@ private:
     QPointF mapDataToPlot(const QPointF &point, const QRectF &bounds, const QRectF &plotArea) const;
     QPointF mapPlotToData(const QPointF &point, const QRectF &bounds, const QRectF &plotArea) const;
     bool isPolygonMode() const;
+    bool isPanMode() const;
     void clearInteractionDraft();
     QSGGeometryNode *buildSeriesNode(
         const QVector<QPointF> &points,

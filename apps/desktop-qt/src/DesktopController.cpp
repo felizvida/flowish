@@ -886,6 +886,32 @@ void DesktopController::scalePlotView(const QString &plotId, double factor) {
         QJsonDocument(command).toJson(QJsonDocument::Compact)));
 }
 
+void DesktopController::panPlotView(const QString &plotId, double xDelta, double yDelta) {
+    if (plotId.trimmed().isEmpty()) {
+        setLastError("Plot id cannot be empty");
+        return;
+    }
+    if (!std::isfinite(xDelta) || !std::isfinite(yDelta)) {
+        setLastError("Plot pan deltas must be finite numbers");
+        return;
+    }
+    if (qFuzzyIsNull(xDelta) && qFuzzyIsNull(yDelta)) {
+        return;
+    }
+
+    QJsonObject command;
+    const QString sampleId = activeSampleId();
+    command.insert("kind", "pan_plot_view");
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("plot_id", plotId);
+    command.insert("x_delta", xDelta);
+    command.insert("y_delta", yDelta);
+    dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
 void DesktopController::resetSession() {
     if (session_ == nullptr) {
         setLastError("Desktop session is unavailable");

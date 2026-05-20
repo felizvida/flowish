@@ -1313,6 +1313,13 @@ ApplicationWindow {
                                     checked: window.activeGateTool === "polygon"
                                     onClicked: window.activeGateTool = "polygon"
                                 }
+
+                                Button {
+                                    text: "Pan Tool"
+                                    checkable: true
+                                    checked: window.activeGateTool === "pan"
+                                    onClicked: window.activeGateTool = "pan"
+                                }
                             }
 
                             Row {
@@ -1333,7 +1340,9 @@ ApplicationWindow {
 
                             Text {
                                 width: parent.width
-                                text: window.activeGateTool === "rectangle"
+                                text: window.activeGateTool === "pan"
+                                      ? "Drag any plot to pan the current replayable view. Use Auto or Focus to return to computed extents."
+                                      : window.activeGateTool === "rectangle"
                                       ? "Drag on scatter plots for rectangle gates, drag across histograms for range gates, enter exact histogram min/max thresholds, use Quadrants for four-way scatter splits, or use Low Gate / High Gate for midpoint histogram gates. Every gate is appended to the Rust command log and becomes a child of the currently selected population."
                                       : "Click to place polygon vertices on either plot, then right-click to commit. Right-click with fewer than three vertices clears the draft."
                                 color: "#6d5941"
@@ -1800,6 +1809,12 @@ ApplicationWindow {
                                                 plotA.id || "",
                                                 vertices)
                                 }
+                                onPlotPanned: function (xDelta, yDelta) {
+                                    desktopController.panPlotView(
+                                                plotA.id || "",
+                                                xDelta,
+                                                yDelta)
+                                }
                             }
 
                             HistogramPlotItem {
@@ -1814,11 +1829,18 @@ ApplicationWindow {
                                 xMax: plotA.x_range ? plotA.x_range.max : 1
                                 yMin: plotA.y_range ? plotA.y_range.min : 0
                                 yMax: plotA.y_range ? plotA.y_range.max : 1
+                                interactionMode: window.activeGateTool
                                 onRangeGateDrawn: function (min, max) {
                                     desktopController.createHistogramRangeGateForPlot(
                                                 plotA.id || "",
                                                 min,
                                                 max)
+                                }
+                                onPlotPanned: function (xDelta) {
+                                    desktopController.panPlotView(
+                                                plotA.id || "",
+                                                xDelta,
+                                                0)
                                 }
                             }
                         }
@@ -2004,6 +2026,12 @@ ApplicationWindow {
                                                 plotB.id || "",
                                                 vertices)
                                 }
+                                onPlotPanned: function (xDelta, yDelta) {
+                                    desktopController.panPlotView(
+                                                plotB.id || "",
+                                                xDelta,
+                                                yDelta)
+                                }
                             }
 
                             HistogramPlotItem {
@@ -2018,11 +2046,18 @@ ApplicationWindow {
                                 xMax: plotB.x_range ? plotB.x_range.max : 1
                                 yMin: plotB.y_range ? plotB.y_range.min : 0
                                 yMax: plotB.y_range ? plotB.y_range.max : 1
+                                interactionMode: window.activeGateTool
                                 onRangeGateDrawn: function (min, max) {
                                     desktopController.createHistogramRangeGateForPlot(
                                                 plotB.id || "",
                                                 min,
                                                 max)
+                                }
+                                onPlotPanned: function (xDelta) {
+                                    desktopController.panPlotView(
+                                                plotB.id || "",
+                                                xDelta,
+                                                0)
                                 }
                             }
                         }
@@ -2209,6 +2244,12 @@ ApplicationWindow {
                                                 plotC.id || "",
                                                 vertices)
                                 }
+                                onPlotPanned: function (xDelta, yDelta) {
+                                    desktopController.panPlotView(
+                                                plotC.id || "",
+                                                xDelta,
+                                                yDelta)
+                                }
                             }
 
                             HistogramPlotItem {
@@ -2223,11 +2264,18 @@ ApplicationWindow {
                                 xMax: plotC.x_range ? plotC.x_range.max : 1
                                 yMin: plotC.y_range ? plotC.y_range.min : 0
                                 yMax: plotC.y_range ? plotC.y_range.max : 1
+                                interactionMode: window.activeGateTool
                                 onRangeGateDrawn: function (min, max) {
                                     desktopController.createHistogramRangeGateForPlot(
                                                 plotC.id || "",
                                                 min,
                                                 max)
+                                }
+                                onPlotPanned: function (xDelta) {
+                                    desktopController.panPlotView(
+                                                plotC.id || "",
+                                                xDelta,
+                                                0)
                                 }
                             }
                         }

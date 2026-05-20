@@ -137,9 +137,11 @@ Expected result for an override:
 - the analysis history gains a replayable compensation override action
 - plots, gates, stats, and derived metrics recompute from the overridden compensated values
 
-## Step 8. Refocus A Plot
+## Step 8. Refocus And Pan A Plot
 
 Select your child population in the population list, then click `Focus` above one of the plots.
+
+To inspect nearby events without changing the gate, select `Pan Tool` in the command tools and drag across a scatter or histogram panel. Pan is recorded as a replayable view action, so reopening the workspace preserves the same visual context.
 
 Expected result:
 
@@ -147,6 +149,7 @@ Expected result:
 - the plot subtitle shows a new view summary
 - the workspace will remember this view action
 - if you focus the histogram panel instead, its x-range tightens around the selected population's distribution
+- if you pan after focusing, the subtitle changes to `Panned view`
 
 ## Step 9. Export A Plot Figure
 

@@ -59,7 +59,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Workspace bundles copy FCS sources and validate saved integrity metadata today, but derived caches, recovery snapshots, compression, and signed package manifests are not implemented yet
 - Derived metrics are limited to positive fraction and mean ratio today; custom formula editors and spreadsheet-style expressions are not implemented yet
 - Contour/density plot controls and reference-matched transform tuning are not implemented yet
-- Gate editing handles, freeform pan, PDF/SVG figure export, and multi-panel report export are not implemented yet
+- Gate editing handles, PDF/SVG figure export, and multi-panel report export are not implemented yet
 - Cloud sync, jobs, and AI assistance are future phases
 
 ## Repository Layout
