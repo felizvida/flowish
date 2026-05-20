@@ -178,6 +178,14 @@ enum ViewAction {
         x_delta: f64,
         y_delta: f64,
     },
+    SetPlotViewRange {
+        sample_id: String,
+        plot_id: String,
+        x_min: f64,
+        x_max: f64,
+        y_min: f64,
+        y_max: f64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -522,6 +530,7 @@ impl ViewAction {
             Self::FocusPlotPopulation { .. } => "focus_plot_population",
             Self::ScalePlotView { .. } => "scale_plot_view",
             Self::PanPlotView { .. } => "pan_plot_view",
+            Self::SetPlotViewRange { .. } => "set_plot_view_range",
         }
     }
 
@@ -530,7 +539,8 @@ impl ViewAction {
             Self::ResetPlotView { sample_id, .. }
             | Self::FocusPlotPopulation { sample_id, .. }
             | Self::ScalePlotView { sample_id, .. }
-            | Self::PanPlotView { sample_id, .. } => sample_id,
+            | Self::PanPlotView { sample_id, .. }
+            | Self::SetPlotViewRange { sample_id, .. } => sample_id,
         }
     }
 
@@ -539,7 +549,8 @@ impl ViewAction {
             Self::ResetPlotView { plot_id, .. }
             | Self::FocusPlotPopulation { plot_id, .. }
             | Self::ScalePlotView { plot_id, .. }
-            | Self::PanPlotView { plot_id, .. } => plot_id,
+            | Self::PanPlotView { plot_id, .. }
+            | Self::SetPlotViewRange { plot_id, .. } => plot_id,
         }
     }
 
@@ -590,6 +601,22 @@ impl ViewAction {
                 ("x_delta", JsonValue::Number(*x_delta)),
                 ("y_delta", JsonValue::Number(*y_delta)),
             ]),
+            Self::SetPlotViewRange {
+                sample_id,
+                plot_id,
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+            } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind().to_string())),
+                ("sample_id", JsonValue::String(sample_id.clone())),
+                ("plot_id", JsonValue::String(plot_id.clone())),
+                ("x_min", JsonValue::Number(*x_min)),
+                ("x_max", JsonValue::Number(*x_max)),
+                ("y_min", JsonValue::Number(*y_min)),
+                ("y_max", JsonValue::Number(*y_max)),
+            ]),
         }
     }
 
@@ -628,6 +655,14 @@ impl ViewAction {
                     .get("y_delta")
                     .and_then(JsonValue::as_f64)
                     .unwrap_or(0.0),
+            }),
+            "set_plot_view_range" => Ok(Self::SetPlotViewRange {
+                sample_id: required_json_string(value, "sample_id")?.to_string(),
+                plot_id: required_json_string(value, "plot_id")?.to_string(),
+                x_min: required_json_number(value, "x_min")?,
+                x_max: required_json_number(value, "x_max")?,
+                y_min: required_json_number(value, "y_min")?,
+                y_max: required_json_number(value, "y_max")?,
             }),
             other => Err(format!("unknown view action kind '{other}'")),
         }
@@ -753,6 +788,13 @@ impl ViewActionLog {
                             })?;
                     pan_plot_range(&current, *x_delta, *y_delta)?
                 }
+                ViewAction::SetPlotViewRange {
+                    x_min,
+                    x_max,
+                    y_min,
+                    y_max,
+                    ..
+                } => set_plot_range(*x_min, *x_max, *y_min, *y_max)?,
             };
             ranges.insert(record.action.plot_id().to_string(), next_range);
         }
@@ -1166,7 +1208,8 @@ impl DesktopSession {
             Some("reset_plot_view")
             | Some("focus_plot_population")
             | Some("scale_plot_view")
-            | Some("pan_plot_view") => {
+            | Some("pan_plot_view")
+            | Some("set_plot_view_range") => {
                 return self.dispatch_view_json(&value);
             }
             Some("quadrant_gate") => {
@@ -6260,6 +6303,28 @@ fn pan_plot_range(
     Ok(next)
 }
 
+fn set_plot_range(
+    x_min: f64,
+    x_max: f64,
+    y_min: f64,
+    y_max: f64,
+) -> Result<PlotRangeState, String> {
+    if !x_min.is_finite() || !x_max.is_finite() || !y_min.is_finite() || !y_max.is_finite() {
+        return Err("plot range bounds must be finite numbers".to_string());
+    }
+    if x_min == x_max || y_min == y_max {
+        return Err("plot range bounds must be distinct on both axes".to_string());
+    }
+
+    Ok(PlotRangeState {
+        x_min: x_min.min(x_max),
+        x_max: x_min.max(x_max),
+        y_min: y_min.min(y_max),
+        y_max: y_min.max(y_max),
+        summary: "Manual view range".to_string(),
+    })
+}
+
 fn plot_bounds(
     sample: &SampleFrame,
     x_index: usize,
@@ -7844,6 +7909,47 @@ mod tests {
                 .and_then(|range| range.get("min"))
                 .and_then(JsonValue::as_f64),
             Some(zoomed_y_min - 1.25)
+        );
+
+        let manual_range_payload = JsonValue::object([
+            ("kind", JsonValue::String("set_plot_view_range".to_string())),
+            ("sample_id", JsonValue::String("view-sample".to_string())),
+            ("plot_id", JsonValue::String("plot_fsc_a_ssc_a".to_string())),
+            ("x_min", JsonValue::Number(5.0)),
+            ("x_max", JsonValue::Number(55.0)),
+            ("y_min", JsonValue::Number(7.0)),
+            ("y_max", JsonValue::Number(77.0)),
+        ])
+        .stringify_canonical();
+        let manual = session.dispatch_json(&manual_range_payload);
+        assert_eq!(
+            manual
+                .get("plots")
+                .and_then(JsonValue::as_array)
+                .and_then(|plots| plots.first())
+                .and_then(|plot| plot.get("view_summary"))
+                .and_then(JsonValue::as_str),
+            Some("Manual view range")
+        );
+        assert_eq!(
+            manual
+                .get("plots")
+                .and_then(JsonValue::as_array)
+                .and_then(|plots| plots.first())
+                .and_then(|plot| plot.get("x_range"))
+                .and_then(|range| range.get("min"))
+                .and_then(JsonValue::as_f64),
+            Some(5.0)
+        );
+        assert_eq!(
+            manual
+                .get("plots")
+                .and_then(JsonValue::as_array)
+                .and_then(|plots| plots.first())
+                .and_then(|plot| plot.get("y_range"))
+                .and_then(|range| range.get("max"))
+                .and_then(JsonValue::as_f64),
+            Some(77.0)
         );
 
         let _ = fs::remove_file(sample_path);

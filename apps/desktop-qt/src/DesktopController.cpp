@@ -912,6 +912,38 @@ void DesktopController::panPlotView(const QString &plotId, double xDelta, double
         QJsonDocument(command).toJson(QJsonDocument::Compact)));
 }
 
+void DesktopController::setPlotViewRange(
+    const QString &plotId,
+    double xMin,
+    double xMax,
+    double yMin,
+    double yMax) {
+    if (plotId.trimmed().isEmpty()) {
+        setLastError("Plot id cannot be empty");
+        return;
+    }
+    const bool allFinite = std::isfinite(xMin) && std::isfinite(xMax) && std::isfinite(yMin)
+        && std::isfinite(yMax);
+    if (!allFinite || qFuzzyCompare(xMin, xMax) || qFuzzyCompare(yMin, yMax)) {
+        setLastError("Plot range bounds must be finite and distinct on both axes");
+        return;
+    }
+
+    QJsonObject command;
+    const QString sampleId = activeSampleId();
+    command.insert("kind", "set_plot_view_range");
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("plot_id", plotId);
+    command.insert("x_min", xMin);
+    command.insert("x_max", xMax);
+    command.insert("y_min", yMin);
+    command.insert("y_max", yMax);
+    dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
 void DesktopController::resetSession() {
     if (session_ == nullptr) {
         setLastError("Desktop session is unavailable");

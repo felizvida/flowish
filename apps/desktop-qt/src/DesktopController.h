@@ -99,6 +99,12 @@ public:
     Q_INVOKABLE void focusPlotOnSelectedPopulation(const QString &plotId);
     Q_INVOKABLE void scalePlotView(const QString &plotId, double factor);
     Q_INVOKABLE void panPlotView(const QString &plotId, double xDelta, double yDelta);
+    Q_INVOKABLE void setPlotViewRange(
+        const QString &plotId,
+        double xMin,
+        double xMax,
+        double yMin,
+        double yMax);
     Q_INVOKABLE void resetSession();
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();

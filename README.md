@@ -48,7 +48,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Derived metric controls for replayable positive-fraction and mean-ratio formulas on the selected population
 - Cross-sample comparison panel for the selected population, with deltas versus the active sample plus derived-metric values and filtered comparison/derived-metric CSV export
 - Persisted sample group labels plus cohort summary cards, cohort-level derived-metric means, and cohort-summary CSV export
-- Replayable plot-view controls for auto extents, focus-on-population, and zoom in/out
+- Replayable plot-view controls for auto extents, focus-on-population, zoom in/out, drag pan, and exact manual range entry
 - Command log with undo and redo
 - Rust backend stub for parity-focused service surfaces
 - CLI tools for FCS inspection and replay demos

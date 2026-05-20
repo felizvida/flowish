@@ -143,6 +143,8 @@ Select your child population in the population list, then click `Focus` above on
 
 To inspect nearby events without changing the gate, select `Pan Tool` in the command tools and drag across a scatter or histogram panel. Pan is recorded as a replayable view action, so reopening the workspace preserves the same visual context.
 
+For exact axis control, click `View Fields`, edit the plot's `View` x/y min/max fields, and click `Set View`.
+
 Expected result:
 
 - the plot range tightens around the selected population
@@ -150,6 +152,7 @@ Expected result:
 - the workspace will remember this view action
 - if you focus the histogram panel instead, its x-range tightens around the selected population's distribution
 - if you pan after focusing, the subtitle changes to `Panned view`
+- if you use exact bounds, the subtitle changes to `Manual view range`
 
 ## Step 9. Export A Plot Figure
 

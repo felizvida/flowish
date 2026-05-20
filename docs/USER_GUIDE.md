@@ -105,6 +105,7 @@ Each plot panel now includes explicit replayable view controls:
 - `Focus` reframes the active projection around the currently selected population
 - `Zoom In` and `Zoom Out` scale the current plot extents around the plot center
 - `Pan Tool` lets you drag scatter or histogram panels to shift the visible range
+- `View Fields` reveals exact x/y min/max inputs, and `Set View` applies those manual bounds
 
 How they behave:
 
@@ -112,6 +113,7 @@ How they behave:
 - if a focused population disappears because a gate is undone, the plot falls back to auto extents instead of breaking the session
 - gate undo and redo do not remove plot-view actions in the current desktop
 - use `Auto` or `Focus` to return from a manually panned view to computed extents
+- manual ranges are normalized so reversed min/max entry still produces a valid increasing range
 
 ## Figure Export
 
@@ -349,7 +351,6 @@ The backend exists to preserve local/cloud parity pressure early, not to replace
 Parallax does not yet include:
 
 - Gate editing handles
-- Manual axis-entry controls
 - Density plots
 - PDF/SVG figure export and report export
 - Cloud sync

@@ -61,7 +61,7 @@ To work with real data:
 - if the sample includes a parsed spillover matrix, use `Apply Parsed Compensation`
 - paste an FCS spillover string into `Manual Compensation Override` when you need to replace the parsed matrix; QC will mark the source as an override
 - use the channel transform controls to switch between `Linear`, `Signed Log10`, `Asinh (150)`, `Biexponential`, and `Logicle`
-- use the `Auto`, `Focus`, `Zoom In`, `Zoom Out`, and `Pan Tool` controls to adjust plot extents through replayable view actions
+- use `Auto`, `Focus`, `Zoom In`, `Zoom Out`, `Pan Tool`, or `View Fields` plus `Set View` to adjust plot extents through replayable view actions
 - use `Export PNG` above a plot to capture a high-resolution figure with interaction controls hidden
 - look for an additional histogram panel when the sample has a suitable non-structural channel
 - review `Population Stats` in the left rail for counts, frequencies, means, and medians

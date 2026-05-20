@@ -21,6 +21,7 @@ ApplicationWindow {
     property string derivedMetricDraftDenominatorChannel: ""
     property string derivedMetricDraftThreshold: "1.00"
     property bool figureExportInProgress: false
+    property bool showPlotViewEditors: false
 
     function transformIndex(kind) {
         if (kind === "signed_log10")
@@ -60,10 +61,23 @@ ApplicationWindow {
                 : "Click to place polygon vertices, then right-click to finish"
     }
 
-    function plotRangeBoundText(plot, boundName) {
-        const range = plot.x_range || {}
+    function plotRangeBoundText(plot, axisName, boundName) {
+        if (boundName === undefined) {
+            boundName = axisName
+            axisName = "x_range"
+        }
+        const range = plot[axisName] || {}
         const numeric = Number(range[boundName])
         return isFinite(numeric) ? numeric.toFixed(2) : ""
+    }
+
+    function commitPlotViewRange(plot, xMinText, xMaxText, yMinText, yMaxText) {
+        return desktopController.setPlotViewRange(
+                    plot.id || "",
+                    Number(xMinText),
+                    Number(xMaxText),
+                    Number(yMinText),
+                    Number(yMaxText))
     }
 
     function commitNumericHistogramRange(plot, minText, maxText) {
@@ -1714,18 +1728,82 @@ ApplicationWindow {
                             }
 
                             Button {
+                                text: "View Fields"
+                                checkable: true
+                                checked: window.showPlotViewEditors
+                                onClicked: window.showPlotViewEditors = checked
+                            }
+
+                            Button {
                                 text: "Export PNG"
                                 enabled: !window.figureExportInProgress
                                 onClicked: window.exportPlotCard(plotACard, plotA)
                             }
 
                             Item { Layout.fillWidth: true }
+                        }
+
+                        Text {
+                            visible: !window.figureExportInProgress
+                            text: "View: " + (plotA.view_summary || "Auto extents")
+                            color: "#8b6a3c"
+                            font.pixelSize: 13
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: window.showPlotViewEditors && !window.figureExportInProgress
+                            spacing: 8
 
                             Text {
-                                text: plotA.view_summary || "Auto extents"
-                                color: "#8b6a3c"
+                                text: "View"
+                                color: "#6d5941"
                                 font.pixelSize: 13
                             }
+
+                            TextField {
+                                id: plotAViewXMinField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotA, "x_range", "min")
+                                placeholderText: "x min"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotAViewXMaxField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotA, "x_range", "max")
+                                placeholderText: "x max"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotAViewYMinField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotA, "y_range", "min")
+                                placeholderText: "y min"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotAViewYMaxField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotA, "y_range", "max")
+                                placeholderText: "y max"
+                                selectByMouse: true
+                            }
+
+                            Button {
+                                text: "Set View"
+                                onClicked: window.commitPlotViewRange(
+                                               plotA,
+                                               plotAViewXMinField.text,
+                                               plotAViewXMaxField.text,
+                                               plotAViewYMinField.text,
+                                               plotAViewYMaxField.text)
+                            }
+
+                            Item { Layout.fillWidth: true }
                         }
 
                         Text {
@@ -1931,18 +2009,82 @@ ApplicationWindow {
                             }
 
                             Button {
+                                text: "View Fields"
+                                checkable: true
+                                checked: window.showPlotViewEditors
+                                onClicked: window.showPlotViewEditors = checked
+                            }
+
+                            Button {
                                 text: "Export PNG"
                                 enabled: !window.figureExportInProgress
                                 onClicked: window.exportPlotCard(plotBCard, plotB)
                             }
 
                             Item { Layout.fillWidth: true }
+                        }
+
+                        Text {
+                            visible: !window.figureExportInProgress
+                            text: "View: " + (plotB.view_summary || "Auto extents")
+                            color: "#8b6a3c"
+                            font.pixelSize: 13
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: window.showPlotViewEditors && !window.figureExportInProgress
+                            spacing: 8
 
                             Text {
-                                text: plotB.view_summary || "Auto extents"
-                                color: "#8b6a3c"
+                                text: "View"
+                                color: "#6d5941"
                                 font.pixelSize: 13
                             }
+
+                            TextField {
+                                id: plotBViewXMinField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotB, "x_range", "min")
+                                placeholderText: "x min"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotBViewXMaxField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotB, "x_range", "max")
+                                placeholderText: "x max"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotBViewYMinField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotB, "y_range", "min")
+                                placeholderText: "y min"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotBViewYMaxField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotB, "y_range", "max")
+                                placeholderText: "y max"
+                                selectByMouse: true
+                            }
+
+                            Button {
+                                text: "Set View"
+                                onClicked: window.commitPlotViewRange(
+                                               plotB,
+                                               plotBViewXMinField.text,
+                                               plotBViewXMaxField.text,
+                                               plotBViewYMinField.text,
+                                               plotBViewYMaxField.text)
+                            }
+
+                            Item { Layout.fillWidth: true }
                         }
 
                         Text {
@@ -2149,18 +2291,82 @@ ApplicationWindow {
                             }
 
                             Button {
+                                text: "View Fields"
+                                checkable: true
+                                checked: window.showPlotViewEditors
+                                onClicked: window.showPlotViewEditors = checked
+                            }
+
+                            Button {
                                 text: "Export PNG"
                                 enabled: !window.figureExportInProgress
                                 onClicked: window.exportPlotCard(plotCCard, plotC)
                             }
 
                             Item { Layout.fillWidth: true }
+                        }
+
+                        Text {
+                            visible: !window.figureExportInProgress
+                            text: "View: " + (plotC.view_summary || "Auto extents")
+                            color: "#8b6a3c"
+                            font.pixelSize: 13
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: window.showPlotViewEditors && !window.figureExportInProgress
+                            spacing: 8
 
                             Text {
-                                text: plotC.view_summary || "Auto extents"
-                                color: "#8b6a3c"
+                                text: "View"
+                                color: "#6d5941"
                                 font.pixelSize: 13
                             }
+
+                            TextField {
+                                id: plotCViewXMinField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotC, "x_range", "min")
+                                placeholderText: "x min"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotCViewXMaxField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotC, "x_range", "max")
+                                placeholderText: "x max"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotCViewYMinField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotC, "y_range", "min")
+                                placeholderText: "y min"
+                                selectByMouse: true
+                            }
+
+                            TextField {
+                                id: plotCViewYMaxField
+                                Layout.preferredWidth: 82
+                                text: window.plotRangeBoundText(plotC, "y_range", "max")
+                                placeholderText: "y max"
+                                selectByMouse: true
+                            }
+
+                            Button {
+                                text: "Set View"
+                                onClicked: window.commitPlotViewRange(
+                                               plotC,
+                                               plotCViewXMinField.text,
+                                               plotCViewXMaxField.text,
+                                               plotCViewYMinField.text,
+                                               plotCViewYMaxField.text)
+                            }
+
+                            Item { Layout.fillWidth: true }
                         }
 
                         Text {
