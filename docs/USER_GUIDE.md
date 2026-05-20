@@ -57,8 +57,8 @@ How it works today:
 - Each sample keeps its own command log, undo state, and derived populations
 - `Save Workspace As` writes a workspace document that records sample sources, active sample, per-sample command logs, and redo state
 - `Load Workspace` rebuilds the session from those sample sources and replays the saved command history
-- `Save Portable Bundle` writes a `.parallax` directory with a manifest plus copied FCS files under `samples/`
-- `Load Bundle` opens the portable bundle and resolves those relative sample paths before replay
+- `Save Portable Bundle` writes a `.parallax` directory with a manifest, copied FCS files under `samples/`, and per-sample integrity metadata
+- `Load Bundle` opens the portable bundle, validates copied-source integrity, and resolves relative sample paths before replay
 
 The active sample card shows:
 
@@ -318,8 +318,8 @@ Current implication:
 
 - The desktop now exercises the same deterministic engine against imported files, not only the demo sample
 - Source-path workspace save/load is useful for active projects that stay on the same machine
-- Portable workspace bundles copy imported FCS files so the analysis can move without the original acquisition folder
-- There is still no derived-data cache, compressed package format, recovery snapshot, or integrity manifest
+- Portable workspace bundles copy imported FCS files and validate manifest integrity so the analysis can move without the original acquisition folder
+- There is still no derived-data cache, compressed package format, recovery snapshot, or signed package manifest
 - custom free-form formulas, richer grouped-comparison views, density views, PDF/SVG figure export, and richer transform tuning are still ahead
 
 ## CLI and Backend

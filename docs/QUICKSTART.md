@@ -77,8 +77,8 @@ To work with real data:
 - use `Export Batch Stats CSV` to write grouped stats across every loaded sample
 - use `Save Workspace As` to persist the current local session
 - use `Load Workspace` to reopen a saved session later, as long as the referenced source files are still available
-- use `Save Portable Bundle` when you want a `.parallax` directory that includes copied FCS sources and can move with the analysis
-- use `Load Bundle` to reopen that portable bundle even if the original source folder is unavailable
+- use `Save Portable Bundle` when you want a `.parallax` directory that includes copied FCS sources, integrity metadata, and can move with the analysis
+- use `Load Bundle` to validate and reopen that portable bundle even if the original source folder is unavailable
 
 ## 5. Optional backend and CLI checks
 

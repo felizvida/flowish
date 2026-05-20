@@ -252,7 +252,7 @@ That command prints:
 
 Click `Save Workspace As` if you want to persist the current desktop session.
 
-Use `Save Portable Bundle` instead when you want the analysis and imported FCS files to travel together as a `.parallax` directory.
+Use `Save Portable Bundle` instead when you want the analysis, imported FCS files, and integrity metadata to travel together as a `.parallax` directory.
 
 What gets saved:
 
@@ -266,7 +266,7 @@ What gets saved:
 What is required when you reopen it later:
 
 - source-path workspace files require the original referenced `.fcs` files to stay available at the saved paths
-- portable bundles can be reopened with `Load Bundle` because copied FCS files live inside the bundle's `samples/` directory
+- portable bundles can be reopened with `Load Bundle` because copied FCS files live inside the bundle's `samples/` directory and are checked against saved integrity metadata
 
 ## What You Learned
 

@@ -828,11 +828,26 @@ struct WorkspaceSampleSpec {
     display_name: String,
     group_label: String,
     source: WorkspaceSampleSource,
+    integrity: Option<WorkspaceSampleIntegrity>,
 }
 
 enum WorkspaceSampleSource {
     EmbeddedDemo,
     FcsFile(String),
+}
+
+#[derive(Clone, Debug)]
+struct WorkspaceSampleIntegrity {
+    sample_fingerprint: u64,
+    compensation_hash: u64,
+    source_byte_count: Option<u64>,
+    source_stable_hash: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+struct SourceByteIntegrity {
+    byte_count: u64,
+    stable_hash: u64,
 }
 
 struct WorkspaceDocument {
@@ -1477,6 +1492,7 @@ impl DesktopSession {
         }
 
         let mut source_overrides = BTreeMap::new();
+        let mut source_byte_integrity = BTreeMap::new();
         for (index, sample_id) in self.sample_order.iter().enumerate() {
             let Some(info) = self.sample_info.get(sample_id) else {
                 return error_json_value(format!("missing sample info for '{sample_id}'"));
@@ -1489,7 +1505,17 @@ impl DesktopSession {
             let file_name = portable_bundle_sample_file_name(index, sample_id, source);
             let relative_path = Path::new("samples").join(file_name);
             let destination = bundle_dir.join(&relative_path);
-            if let Err(error) = fs::copy(source, &destination) {
+            let bytes = match fs::read(source) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return error_json_value(format!(
+                        "failed to read sample '{}' for workspace bundle: {error}",
+                        source_path
+                    ));
+                }
+            };
+            let byte_integrity = source_byte_integrity_for_bytes(&bytes);
+            if let Err(error) = fs::write(&destination, &bytes) {
                 return error_json_value(format!(
                     "failed to copy sample '{}' into workspace bundle: {error}",
                     source_path
@@ -1499,9 +1525,12 @@ impl DesktopSession {
                 sample_id.clone(),
                 WorkspaceSampleSource::FcsFile(relative_path.to_string_lossy().to_string()),
             );
+            source_byte_integrity.insert(sample_id.clone(), byte_integrity);
         }
 
-        let document = match self.workspace_document_json_with_sources(&source_overrides) {
+        let document = match self
+            .workspace_document_json_with_sources(&source_overrides, &source_byte_integrity)
+        {
             Ok(value) => value.stringify_canonical(),
             Err(message) => return error_json_value(message),
         };
@@ -2371,12 +2400,13 @@ impl DesktopSession {
     }
 
     fn workspace_document_json(&self) -> Result<JsonValue, String> {
-        self.workspace_document_json_with_sources(&BTreeMap::new())
+        self.workspace_document_json_with_sources(&BTreeMap::new(), &BTreeMap::new())
     }
 
     fn workspace_document_json_with_sources(
         &self,
         source_overrides: &BTreeMap<String, WorkspaceSampleSource>,
+        source_byte_integrity: &BTreeMap<String, SourceByteIntegrity>,
     ) -> Result<JsonValue, String> {
         let mut command_logs = BTreeMap::new();
         let mut analysis_logs = BTreeMap::new();
@@ -2405,11 +2435,18 @@ impl DesktopSession {
                 .redo_stacks
                 .get(sample_id)
                 .ok_or_else(|| format!("missing redo stack for '{sample_id}'"))?;
+            let artifact = self
+                .sample_artifacts
+                .get(sample_id)
+                .ok_or_else(|| format!("missing sample artifact for '{sample_id}'"))?;
 
             samples.push(workspace_sample_json(
                 sample_id,
                 info,
                 source_overrides.get(sample_id),
+                &artifact.raw_sample,
+                artifact.compensation.as_ref(),
+                source_byte_integrity.get(sample_id),
             ));
             command_logs.insert(
                 sample_id.clone(),
@@ -2541,7 +2578,8 @@ impl ImportedSession {
         let mut sample_info = BTreeMap::new();
 
         for spec in &workspace.sample_specs {
-            let artifact = load_sample_artifact_from_source(&spec.source, &spec.id)?;
+            let artifact =
+                load_sample_artifact_from_source(&spec.source, &spec.id, spec.integrity.as_ref())?;
             environment
                 .insert_sample(artifact.raw_sample.clone())
                 .map_err(|error| {
@@ -2870,6 +2908,49 @@ impl WorkspaceSampleSpec {
             display_name,
             group_label,
             source,
+            integrity: match value.get("integrity") {
+                Some(JsonValue::Null) | None => None,
+                Some(value) => Some(WorkspaceSampleIntegrity::from_json_value(value)?),
+            },
+        })
+    }
+}
+
+impl WorkspaceSampleIntegrity {
+    fn from_json_value(value: &JsonValue) -> Result<Self, String> {
+        let sample_fingerprint = value
+            .get("sample_fingerprint")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| "workspace sample integrity is missing sample_fingerprint".to_string())
+            .and_then(|value| parse_hex_u64(value, "sample_fingerprint"))?;
+        let compensation_hash = value
+            .get("compensation_hash")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| "workspace sample integrity is missing compensation_hash".to_string())
+            .and_then(|value| parse_hex_u64(value, "compensation_hash"))?;
+        let source_byte_count = match value.get("source_byte_count") {
+            Some(JsonValue::Null) | None => None,
+            Some(value) => Some(value.as_u64().ok_or_else(|| {
+                "workspace sample integrity has invalid source_byte_count".to_string()
+            })?),
+        };
+        let source_stable_hash = match value.get("source_stable_hash") {
+            Some(JsonValue::Null) | None => None,
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .ok_or_else(|| {
+                        "workspace sample integrity has invalid source_stable_hash".to_string()
+                    })
+                    .and_then(|value| parse_hex_u64(value, "source_stable_hash"))?,
+            ),
+        };
+
+        Ok(Self {
+            sample_fingerprint,
+            compensation_hash,
+            source_byte_count,
+            source_stable_hash,
         })
     }
 }
@@ -4172,6 +4253,9 @@ fn workspace_sample_json(
     sample_id: &str,
     sample_info: &DesktopSampleInfo,
     source_override: Option<&WorkspaceSampleSource>,
+    sample: &SampleFrame,
+    compensation: Option<&CompensationMatrix>,
+    source_byte_integrity: Option<&SourceByteIntegrity>,
 ) -> JsonValue {
     let default_source = match &sample_info.source_path {
         Some(path) => WorkspaceSampleSource::FcsFile(path.clone()),
@@ -4200,7 +4284,47 @@ fn workspace_sample_json(
                 None => JsonValue::Null,
             },
         ),
+        (
+            "integrity",
+            workspace_sample_integrity_json(sample, compensation, source_byte_integrity),
+        ),
     ])
+}
+
+fn workspace_sample_integrity_json(
+    sample: &SampleFrame,
+    compensation: Option<&CompensationMatrix>,
+    source_byte_integrity: Option<&SourceByteIntegrity>,
+) -> JsonValue {
+    let mut values = BTreeMap::new();
+    values.insert(
+        "sample_fingerprint".to_string(),
+        JsonValue::String(format!("{:016x}", sample.fingerprint())),
+    );
+    values.insert(
+        "compensation_hash".to_string(),
+        JsonValue::String(format!("{:016x}", compensation_matrix_hash(compensation))),
+    );
+    if let Some(source_byte_integrity) = source_byte_integrity {
+        values.insert(
+            "source_byte_count".to_string(),
+            JsonValue::Number(source_byte_integrity.byte_count as f64),
+        );
+        values.insert(
+            "source_stable_hash".to_string(),
+            JsonValue::String(format!("{:016x}", source_byte_integrity.stable_hash)),
+        );
+    }
+    JsonValue::Object(values)
+}
+
+fn source_byte_integrity_for_bytes(bytes: &[u8]) -> SourceByteIntegrity {
+    let mut hasher = StableHasher::new();
+    hasher.update(bytes);
+    SourceByteIntegrity {
+        byte_count: bytes.len() as u64,
+        stable_hash: hasher.finish_u64(),
+    }
 }
 
 fn portable_bundle_sample_file_name(index: usize, sample_id: &str, source_path: &Path) -> String {
@@ -4275,27 +4399,98 @@ fn samples_json(
 fn load_sample_artifact_from_source(
     source: &WorkspaceSampleSource,
     sample_id: &str,
+    integrity: Option<&WorkspaceSampleIntegrity>,
 ) -> Result<DesktopSampleArtifact, String> {
     match source {
-        WorkspaceSampleSource::EmbeddedDemo => Ok(DesktopSampleArtifact {
-            raw_sample: demo_sample(sample_id.to_string())?,
-            compensation: None,
-        }),
+        WorkspaceSampleSource::EmbeddedDemo => {
+            let artifact = DesktopSampleArtifact {
+                raw_sample: demo_sample(sample_id.to_string())?,
+                compensation: None,
+            };
+            validate_workspace_sample_integrity(sample_id, integrity, None, &artifact)?;
+            Ok(artifact)
+        }
         WorkspaceSampleSource::FcsFile(path) => {
             let bytes = fs::read(path)
                 .map_err(|error| format!("failed to read FCS file '{}': {error}", path))?;
+            let byte_integrity = source_byte_integrity_for_bytes(&bytes);
             let parsed = parse_fcs(&bytes)
                 .map_err(|error| format!("failed to parse FCS file '{}': {error}", path))?;
             let compensation = parsed.compensation.clone();
             let raw_sample = parsed
                 .into_sample_frame(sample_id.to_string())
                 .map_err(|error| format!("failed to convert FCS file '{}': {error}", path))?;
-            Ok(DesktopSampleArtifact {
+            let artifact = DesktopSampleArtifact {
                 raw_sample,
                 compensation,
-            })
+            };
+            validate_workspace_sample_integrity(
+                sample_id,
+                integrity,
+                Some(&byte_integrity),
+                &artifact,
+            )?;
+            Ok(artifact)
         }
     }
+}
+
+fn validate_workspace_sample_integrity(
+    sample_id: &str,
+    integrity: Option<&WorkspaceSampleIntegrity>,
+    source_byte_integrity: Option<&SourceByteIntegrity>,
+    artifact: &DesktopSampleArtifact,
+) -> Result<(), String> {
+    let Some(integrity) = integrity else {
+        return Ok(());
+    };
+
+    if let Some(expected_byte_count) = integrity.source_byte_count {
+        let actual_byte_count = source_byte_integrity
+            .map(|value| value.byte_count)
+            .ok_or_else(|| {
+                format!(
+                    "workspace sample '{sample_id}' declares source byte integrity but has no source file"
+                )
+            })?;
+        if actual_byte_count != expected_byte_count {
+            return Err(format!(
+                "workspace sample '{sample_id}' source byte count changed: expected {expected_byte_count}, found {actual_byte_count}"
+            ));
+        }
+    }
+    if let Some(expected_hash) = integrity.source_stable_hash {
+        let actual_hash = source_byte_integrity
+            .map(|value| value.stable_hash)
+            .ok_or_else(|| {
+                format!(
+                    "workspace sample '{sample_id}' declares source hash integrity but has no source file"
+                )
+            })?;
+        if actual_hash != expected_hash {
+            return Err(format!(
+                "workspace sample '{sample_id}' source hash changed: expected {expected_hash:016x}, found {actual_hash:016x}"
+            ));
+        }
+    }
+
+    let actual_fingerprint = artifact.raw_sample.fingerprint();
+    if actual_fingerprint != integrity.sample_fingerprint {
+        return Err(format!(
+            "workspace sample '{sample_id}' parsed fingerprint changed: expected {:016x}, found {:016x}",
+            integrity.sample_fingerprint, actual_fingerprint
+        ));
+    }
+
+    let actual_compensation_hash = compensation_matrix_hash(artifact.compensation.as_ref());
+    if actual_compensation_hash != integrity.compensation_hash {
+        return Err(format!(
+            "workspace sample '{sample_id}' compensation hash changed: expected {:016x}, found {:016x}",
+            integrity.compensation_hash, actual_compensation_hash
+        ));
+    }
+
+    Ok(())
 }
 
 fn commands_json(log: &CommandLog) -> JsonValue {
@@ -7995,7 +8190,16 @@ mod tests {
             manifest.contains("\"source_path\":\"samples/001-bundle-sample.fcs\""),
             "manifest should use a relative bundled source path: {manifest}"
         );
-        assert!(bundle_path.join("samples/001-bundle-sample.fcs").exists());
+        assert!(
+            manifest.contains("\"integrity\""),
+            "manifest should include sample integrity metadata: {manifest}"
+        );
+        assert!(
+            manifest.contains("\"source_stable_hash\""),
+            "bundle manifest should include copied-source byte hash: {manifest}"
+        );
+        let bundled_sample_path = bundle_path.join("samples/001-bundle-sample.fcs");
+        assert!(bundled_sample_path.exists());
 
         fs::remove_file(&sample_path).expect("remove original source");
         let mut reopened = DesktopSession::new().expect("session");
@@ -8022,6 +8226,30 @@ mod tests {
                 .and_then(|stats| stats.get("matched_events"))
                 .and_then(JsonValue::as_u64),
             Some(2)
+        );
+
+        fs::write(
+            &bundled_sample_path,
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD3", "CD4"],
+                vec![vec![99.0, 10.0, 1.0, 9.0], vec![25.0, 20.0, 5.0, 8.0]],
+                None,
+            ),
+        )
+        .expect("tamper bundled sample");
+        let mut tampered = DesktopSession::new().expect("session");
+        let tampered_load = tampered.load_workspace_bundle(bundle_path.to_string_lossy().as_ref());
+        assert_eq!(
+            tampered_load.get("status").and_then(JsonValue::as_str),
+            Some("error")
+        );
+        assert!(
+            tampered_load
+                .get("message")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|message| message.contains("source hash changed")
+                    || message.contains("source byte count changed")),
+            "tampered bundle should fail integrity validation: {tampered_load:?}"
         );
 
         let _ = fs::remove_dir_all(bundle_path);
