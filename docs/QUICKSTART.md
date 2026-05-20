@@ -77,6 +77,8 @@ To work with real data:
 - use `Export Batch Stats CSV` to write grouped stats across every loaded sample
 - use `Save Workspace As` to persist the current local session
 - use `Load Workspace` to reopen a saved session later, as long as the referenced source files are still available
+- use `Save Portable Bundle` when you want a `.parallax` directory that includes copied FCS sources and can move with the analysis
+- use `Load Bundle` to reopen that portable bundle even if the original source folder is unavailable
 
 ## 5. Optional backend and CLI checks
 
@@ -117,6 +119,7 @@ cargo run -p flowjoish-cli -- inspect-fcs /path/to/file.fcs
 - Batch template and batch stats export actions when multiple samples are loaded
 - Plot view controls for focus and zoom
 - Plot figure export buttons
+- Portable workspace bundle actions
 - Rectangle and polygon gating tools
 - Undo, redo, and reset controls
 

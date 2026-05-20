@@ -345,6 +345,20 @@ ApplicationWindow {
                                 }
                             }
 
+                            Row {
+                                spacing: 10
+
+                                Button {
+                                    text: "Load Bundle"
+                                    onClicked: desktopController.loadWorkspaceBundle()
+                                }
+
+                                Button {
+                                    text: "Save Portable Bundle"
+                                    onClicked: desktopController.saveWorkspaceBundleAs()
+                                }
+                            }
+
                             Button {
                                 text: "Export Stats CSV"
                                 onClicked: desktopController.exportStatsCsv()

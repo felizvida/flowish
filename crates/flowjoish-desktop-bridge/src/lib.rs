@@ -1454,6 +1454,69 @@ impl DesktopSession {
             .unwrap_or_else(|message| error_json_value(message))
     }
 
+    fn save_workspace_bundle(&self, bundle_path: &str) -> JsonValue {
+        let bundle_path = bundle_path.trim();
+        if bundle_path.is_empty() {
+            return error_json_value("workspace bundle path cannot be empty");
+        }
+
+        let bundle_dir = Path::new(bundle_path);
+        if bundle_dir.exists() && !bundle_dir.is_dir() {
+            return error_json_value(format!(
+                "workspace bundle path '{}' exists but is not a directory",
+                bundle_path
+            ));
+        }
+
+        let samples_dir = bundle_dir.join("samples");
+        if let Err(error) = fs::create_dir_all(&samples_dir) {
+            return error_json_value(format!(
+                "failed to create workspace bundle '{}': {error}",
+                bundle_path
+            ));
+        }
+
+        let mut source_overrides = BTreeMap::new();
+        for (index, sample_id) in self.sample_order.iter().enumerate() {
+            let Some(info) = self.sample_info.get(sample_id) else {
+                return error_json_value(format!("missing sample info for '{sample_id}'"));
+            };
+            let Some(source_path) = &info.source_path else {
+                continue;
+            };
+
+            let source = Path::new(source_path);
+            let file_name = portable_bundle_sample_file_name(index, sample_id, source);
+            let relative_path = Path::new("samples").join(file_name);
+            let destination = bundle_dir.join(&relative_path);
+            if let Err(error) = fs::copy(source, &destination) {
+                return error_json_value(format!(
+                    "failed to copy sample '{}' into workspace bundle: {error}",
+                    source_path
+                ));
+            }
+            source_overrides.insert(
+                sample_id.clone(),
+                WorkspaceSampleSource::FcsFile(relative_path.to_string_lossy().to_string()),
+            );
+        }
+
+        let document = match self.workspace_document_json_with_sources(&source_overrides) {
+            Ok(value) => value.stringify_canonical(),
+            Err(message) => return error_json_value(message),
+        };
+        let manifest_path = bundle_dir.join("workspace.parallax.json");
+        if let Err(error) = fs::write(&manifest_path, document) {
+            return error_json_value(format!(
+                "failed to write workspace bundle manifest '{}': {error}",
+                manifest_path.to_string_lossy()
+            ));
+        }
+
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
     fn load_workspace(&mut self, workspace_path: &str) -> JsonValue {
         if workspace_path.trim().is_empty() {
             return error_json_value("workspace path cannot be empty");
@@ -1473,6 +1536,51 @@ impl DesktopSession {
             Ok(workspace) => workspace,
             Err(message) => return error_json_value(message),
         };
+
+        let imported = match ImportedSession::from_workspace_document(workspace) {
+            Ok(imported) => imported,
+            Err(message) => return error_json_value(message),
+        };
+
+        self.environment = imported.environment;
+        self.sample_artifacts = imported.sample_artifacts;
+        self.sample_id = imported.active_sample_id;
+        self.sample_order = imported.sample_order;
+        self.sample_info = imported.sample_info;
+        self.derived_metric = imported.derived_metric;
+        self.command_logs = imported.command_logs;
+        self.analysis_logs = imported.analysis_logs;
+        self.view_logs = imported.view_logs;
+        self.redo_stacks = imported.redo_stacks;
+        self.clear_comparison_cache();
+
+        self.snapshot_value()
+            .unwrap_or_else(|message| error_json_value(message))
+    }
+
+    fn load_workspace_bundle(&mut self, bundle_path: &str) -> JsonValue {
+        let bundle_path = bundle_path.trim();
+        if bundle_path.is_empty() {
+            return error_json_value("workspace bundle path cannot be empty");
+        }
+
+        let bundle_dir = Path::new(bundle_path);
+        let manifest_path = bundle_dir.join("workspace.parallax.json");
+        let document = match fs::read_to_string(&manifest_path) {
+            Ok(document) => document,
+            Err(error) => {
+                return error_json_value(format!(
+                    "failed to read workspace bundle manifest '{}': {error}",
+                    manifest_path.to_string_lossy()
+                ));
+            }
+        };
+
+        let mut workspace = match WorkspaceDocument::from_json_str(&document) {
+            Ok(workspace) => workspace,
+            Err(message) => return error_json_value(message),
+        };
+        workspace.resolve_relative_sources(bundle_dir);
 
         let imported = match ImportedSession::from_workspace_document(workspace) {
             Ok(imported) => imported,
@@ -2263,6 +2371,13 @@ impl DesktopSession {
     }
 
     fn workspace_document_json(&self) -> Result<JsonValue, String> {
+        self.workspace_document_json_with_sources(&BTreeMap::new())
+    }
+
+    fn workspace_document_json_with_sources(
+        &self,
+        source_overrides: &BTreeMap<String, WorkspaceSampleSource>,
+    ) -> Result<JsonValue, String> {
         let mut command_logs = BTreeMap::new();
         let mut analysis_logs = BTreeMap::new();
         let mut view_logs = BTreeMap::new();
@@ -2291,7 +2406,11 @@ impl DesktopSession {
                 .get(sample_id)
                 .ok_or_else(|| format!("missing redo stack for '{sample_id}'"))?;
 
-            samples.push(workspace_sample_json(sample_id, info));
+            samples.push(workspace_sample_json(
+                sample_id,
+                info,
+                source_overrides.get(sample_id),
+            ));
             command_logs.insert(
                 sample_id.clone(),
                 JsonValue::parse(&command_log.to_json()).map_err(|error| error.to_string())?,
@@ -2497,6 +2616,18 @@ impl WorkspaceDocument {
     fn from_json_str(input: &str) -> Result<Self, String> {
         let value = JsonValue::parse(input).map_err(|error| error.to_string())?;
         Self::from_json_value(&value)
+    }
+
+    fn resolve_relative_sources(&mut self, base_dir: &Path) {
+        for spec in &mut self.sample_specs {
+            let WorkspaceSampleSource::FcsFile(path) = &mut spec.source else {
+                continue;
+            };
+            let source_path = Path::new(path);
+            if source_path.is_relative() {
+                *path = base_dir.join(source_path).to_string_lossy().to_string();
+            }
+        }
     }
 
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
@@ -2885,6 +3016,26 @@ pub extern "C" fn flowjoish_desktop_session_save_workspace(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_save_workspace_bundle(
+    session: *mut DesktopSession,
+    bundle_path: *const c_char,
+) -> *mut c_char {
+    if bundle_path.is_null() {
+        return payload_to_ptr(
+            error_json_value("workspace bundle path pointer was null").stringify_canonical(),
+        );
+    }
+
+    let bundle_path = unsafe { CStr::from_ptr(bundle_path) };
+    match bundle_path.to_str() {
+        Ok(bundle_path) => with_session_payload(session, |session| {
+            Ok(session.save_workspace_bundle(bundle_path))
+        }),
+        Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn flowjoish_desktop_session_load_workspace(
     session: *mut DesktopSession,
     workspace_path: *const c_char,
@@ -2903,6 +3054,26 @@ pub extern "C" fn flowjoish_desktop_session_load_workspace(
                 |session| Ok(session.load_workspace(workspace_path)),
             )
         }
+        Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flowjoish_desktop_session_load_workspace_bundle(
+    session: *mut DesktopSession,
+    bundle_path: *const c_char,
+) -> *mut c_char {
+    if bundle_path.is_null() {
+        return payload_to_ptr(
+            error_json_value("workspace bundle path pointer was null").stringify_canonical(),
+        );
+    }
+
+    let bundle_path = unsafe { CStr::from_ptr(bundle_path) };
+    match bundle_path.to_str() {
+        Ok(bundle_path) => with_session_payload(session, |session| {
+            Ok(session.load_workspace_bundle(bundle_path))
+        }),
         Err(error) => payload_to_ptr(error_json_value(error.to_string()).stringify_canonical()),
     }
 }
@@ -3997,11 +4168,16 @@ fn string_values_json(values: Vec<String>) -> JsonValue {
     JsonValue::Array(values.into_iter().map(JsonValue::String).collect())
 }
 
-fn workspace_sample_json(sample_id: &str, sample_info: &DesktopSampleInfo) -> JsonValue {
-    let source = match &sample_info.source_path {
+fn workspace_sample_json(
+    sample_id: &str,
+    sample_info: &DesktopSampleInfo,
+    source_override: Option<&WorkspaceSampleSource>,
+) -> JsonValue {
+    let default_source = match &sample_info.source_path {
         Some(path) => WorkspaceSampleSource::FcsFile(path.clone()),
         None => WorkspaceSampleSource::EmbeddedDemo,
     };
+    let source = source_override.unwrap_or(&default_source);
 
     JsonValue::object([
         ("id", JsonValue::String(sample_id.to_string())),
@@ -4025,6 +4201,39 @@ fn workspace_sample_json(sample_id: &str, sample_info: &DesktopSampleInfo) -> Js
             },
         ),
     ])
+}
+
+fn portable_bundle_sample_file_name(index: usize, sample_id: &str, source_path: &Path) -> String {
+    let stem = sanitize_path_component(sample_id);
+    let extension = source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("fcs");
+    format!("{:03}-{stem}.{extension}", index + 1)
+}
+
+fn sanitize_path_component(value: &str) -> String {
+    let mut sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while sanitized.contains("--") {
+        sanitized = sanitized.replace("--", "-");
+    }
+    let sanitized = sanitized.trim_matches('-');
+    if sanitized.is_empty() {
+        "sample".to_string()
+    } else {
+        sanitized.to_string()
+    }
 }
 
 fn samples_json(
@@ -7731,6 +7940,94 @@ mod tests {
     }
 
     #[test]
+    fn session_save_and_load_workspace_bundle_copies_fcs_sources() {
+        let sample_path = write_temp_test_fcs(
+            "bundle-sample",
+            build_test_fcs(
+                vec!["FSC-A", "SSC-A", "CD3", "CD4"],
+                vec![vec![10.0, 10.0, 1.0, 9.0], vec![25.0, 20.0, 5.0, 8.0]],
+                None,
+            ),
+        );
+        let bundle_path = temp_bundle_path("portable");
+
+        let mut session = DesktopSession::new().expect("session");
+        let import_payload = JsonValue::Array(vec![JsonValue::String(
+            sample_path.to_string_lossy().to_string(),
+        )])
+        .stringify_canonical();
+        let imported = session.import_fcs_json(&import_payload);
+        assert_eq!(
+            imported.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+
+        let gate = JsonValue::object([
+            ("kind", JsonValue::String("rectangle_gate".to_string())),
+            ("sample_id", JsonValue::String("bundle-sample".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(30.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(30.0)),
+        ])
+        .stringify_canonical();
+        let gated = session.dispatch_json(&gate);
+        assert_eq!(
+            gated.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+
+        let saved = session.save_workspace_bundle(bundle_path.to_string_lossy().as_ref());
+        assert_eq!(
+            saved.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        let manifest_path = bundle_path.join("workspace.parallax.json");
+        let manifest = fs::read_to_string(&manifest_path).expect("bundle manifest");
+        assert!(
+            manifest.contains("\"source_path\":\"samples/001-bundle-sample.fcs\""),
+            "manifest should use a relative bundled source path: {manifest}"
+        );
+        assert!(bundle_path.join("samples/001-bundle-sample.fcs").exists());
+
+        fs::remove_file(&sample_path).expect("remove original source");
+        let mut reopened = DesktopSession::new().expect("session");
+        let loaded = reopened.load_workspace_bundle(bundle_path.to_string_lossy().as_ref());
+        assert_eq!(
+            loaded.get("status").and_then(JsonValue::as_str),
+            Some("ready")
+        );
+        assert_eq!(
+            loaded
+                .get("sample")
+                .and_then(|sample| sample.get("id"))
+                .and_then(JsonValue::as_str),
+            Some("bundle-sample")
+        );
+        assert_eq!(
+            loaded.get("command_count").and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            loaded
+                .get("population_stats")
+                .and_then(|stats| stats.get("lymphocytes"))
+                .and_then(|stats| stats.get("matched_events"))
+                .and_then(JsonValue::as_u64),
+            Some(2)
+        );
+
+        let _ = fs::remove_dir_all(bundle_path);
+    }
+
+    #[test]
     fn ffi_can_save_and_load_workspace() {
         let workspace_path = temp_workspace_path("ffi-workspace");
         let session = flowjoish_desktop_session_new();
@@ -8803,6 +9100,17 @@ mod tests {
             .as_nanos();
         std::env::temp_dir().join(format!(
             "flowjoish-desktop-bridge-{prefix}-{}-{nanos}.csv",
+            std::process::id()
+        ))
+    }
+
+    fn temp_bundle_path(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "flowjoish-desktop-bridge-{prefix}-{}-{nanos}.parallax",
             std::process::id()
         ))
     }

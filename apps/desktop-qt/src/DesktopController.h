@@ -67,6 +67,8 @@ public:
     Q_INVOKABLE bool loadSampleFiles(const QStringList &paths);
     Q_INVOKABLE void saveWorkspaceAs();
     Q_INVOKABLE bool saveWorkspaceToFile(const QString &path);
+    Q_INVOKABLE void saveWorkspaceBundleAs();
+    Q_INVOKABLE bool saveWorkspaceBundleToPath(const QString &path);
     Q_INVOKABLE void exportStatsCsv();
     Q_INVOKABLE bool exportStatsCsvToFile(const QString &path);
     Q_INVOKABLE void applyActiveTemplateToOtherSamples();
@@ -80,6 +82,8 @@ public:
     Q_INVOKABLE bool exportSelectedPopulationDerivedMetricCsvToFile(const QString &path);
     Q_INVOKABLE void loadWorkspace();
     Q_INVOKABLE bool loadWorkspaceFile(const QString &path);
+    Q_INVOKABLE void loadWorkspaceBundle();
+    Q_INVOKABLE bool loadWorkspaceBundlePath(const QString &path);
     Q_INVOKABLE bool setActiveSampleGroupLabel(const QString &groupLabel);
     Q_INVOKABLE bool setDerivedMetricPositiveFraction(const QString &channel, double threshold);
     Q_INVOKABLE bool setDerivedMetricMeanRatio(

@@ -24,6 +24,8 @@ char *flowjoish_desktop_session_import_fcs_json(void *session, const char *fileP
 char *flowjoish_desktop_session_select_sample(void *session, const char *sampleId);
 char *flowjoish_desktop_session_save_workspace(void *session, const char *workspacePath);
 char *flowjoish_desktop_session_load_workspace(void *session, const char *workspacePath);
+char *flowjoish_desktop_session_save_workspace_bundle(void *session, const char *bundlePath);
+char *flowjoish_desktop_session_load_workspace_bundle(void *session, const char *bundlePath);
 char *flowjoish_desktop_session_export_stats_csv(void *session, const char *exportPath);
 char *flowjoish_desktop_session_apply_active_template_to_other_samples(void *session);
 char *flowjoish_desktop_session_export_batch_stats_csv(void *session, const char *exportPath);
@@ -331,6 +333,20 @@ void DesktopController::saveWorkspaceAs() {
     }
 }
 
+void DesktopController::saveWorkspaceBundleAs() {
+    const QString suggested = workspacePath_.isEmpty()
+        ? QStringLiteral("parallax-workspace.parallax")
+        : workspacePath_ + QStringLiteral(".portable.parallax");
+    const QString path = QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Save Portable Workspace Bundle"),
+        suggested,
+        tr("Parallax Bundle (*.parallax);;All Files (*)"));
+    if (!path.isEmpty()) {
+        saveWorkspaceBundleToPath(path);
+    }
+}
+
 void DesktopController::exportStatsCsv() {
     const QString suggestedName =
         sample_.value("display_name").toString().isEmpty()
@@ -433,6 +449,30 @@ bool DesktopController::saveWorkspaceToFile(const QString &path) {
     const bool saved = applyRustPayload(
         takeRustString(
             flowjoish_desktop_session_save_workspace(session_, utf8.constData())),
+        true);
+    if (saved) {
+        setWorkspacePath(trimmed);
+    }
+    return saved;
+}
+
+bool DesktopController::saveWorkspaceBundleToPath(const QString &path) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Workspace bundle path cannot be empty");
+        return false;
+    }
+
+    const QByteArray utf8 = trimmed.toUtf8();
+    const bool saved = applyRustPayload(
+        takeRustString(flowjoish_desktop_session_save_workspace_bundle(
+            session_,
+            utf8.constData())),
         true);
     if (saved) {
         setWorkspacePath(trimmed);
@@ -624,6 +664,16 @@ void DesktopController::loadWorkspace() {
     }
 }
 
+void DesktopController::loadWorkspaceBundle() {
+    const QString path = QFileDialog::getExistingDirectory(
+        nullptr,
+        tr("Load Portable Workspace Bundle"),
+        workspacePath_);
+    if (!path.isEmpty()) {
+        loadWorkspaceBundlePath(path);
+    }
+}
+
 bool DesktopController::loadWorkspaceFile(const QString &path) {
     if (session_ == nullptr) {
         setLastError("Desktop session is unavailable");
@@ -640,6 +690,30 @@ bool DesktopController::loadWorkspaceFile(const QString &path) {
     const bool loaded = applyRustPayload(
         takeRustString(
             flowjoish_desktop_session_load_workspace(session_, utf8.constData())),
+        true);
+    if (loaded) {
+        setWorkspacePath(trimmed);
+    }
+    return loaded;
+}
+
+bool DesktopController::loadWorkspaceBundlePath(const QString &path) {
+    if (session_ == nullptr) {
+        setLastError("Desktop session is unavailable");
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        setLastError("Workspace bundle path cannot be empty");
+        return false;
+    }
+
+    const QByteArray utf8 = trimmed.toUtf8();
+    const bool loaded = applyRustPayload(
+        takeRustString(flowjoish_desktop_session_load_workspace_bundle(
+            session_,
+            utf8.constData())),
         true);
     if (loaded) {
         setWorkspacePath(trimmed);
