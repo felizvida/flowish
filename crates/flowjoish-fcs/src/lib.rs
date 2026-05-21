@@ -119,6 +119,11 @@ pub fn parse(bytes: &[u8]) -> Result<FcsFile, FcsError> {
             "unsupported FCS mode '{mode}', only list mode is supported"
         )));
     }
+    if let Some(offset) = next_data_offset(&metadata)? {
+        return Err(FcsError::Unsupported(format!(
+            "multiple FCS data sets via $NEXTDATA={offset} are not supported yet"
+        )));
+    }
 
     let channels = parse_channels(&metadata, parameter_count)?;
     let compensation = parse_compensation(&metadata)?;
@@ -425,6 +430,13 @@ fn optional_offset(
             .map(Some)
             .map_err(|_| FcsError::InvalidMetadata(key)),
         None => Ok(None),
+    }
+}
+
+fn next_data_offset(metadata: &BTreeMap<String, String>) -> Result<Option<usize>, FcsError> {
+    match optional_offset(metadata, "$NEXTDATA")? {
+        Some(0) | None => Ok(None),
+        Some(offset) => Ok(Some(offset)),
     }
 }
 
@@ -1016,7 +1028,7 @@ fn read_f64(bytes: &[u8], endianness: Endianness) -> Result<f64, FcsError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompensationMatrix, Endianness, parse};
+    use super::{CompensationMatrix, Endianness, FcsError, parse};
 
     #[test]
     fn parses_channels_metadata_and_compensation() {
@@ -1062,6 +1074,15 @@ mod tests {
         let parsed = parse(&bytes).expect("valid fcs");
         let sample = parsed.into_sample_frame("sample-a").expect("sample frame");
         assert_eq!(sample.channels(), &["CD3".to_string(), "CD3#2".to_string()]);
+    }
+
+    #[test]
+    fn rejects_multiple_data_sets_instead_of_silently_importing_first() {
+        let mut bytes = build_test_fcs(vec!["FSC-A"], vec![vec![1.0]], None);
+        replace_all_ascii(&mut bytes, "/$NEXTDATA/0/", "/$NEXTDATA/1/");
+
+        let error = parse(&bytes).expect_err("multi-data-set FCS should not partially import");
+        assert!(matches!(error, FcsError::Unsupported(message) if message.contains("$NEXTDATA=1")));
     }
 
     #[test]

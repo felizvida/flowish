@@ -17,6 +17,7 @@ The suite lives in:
 - parser regression coverage for fixed-width ASCII event payloads, including ASCII files without `$BYTEORD`
 - parser regression coverage for lowercase and no-dollar standard metadata keywords
 - parser regression coverage for stale header DATA offsets that must fall back to valid `$BEGINDATA`/`$ENDDATA` TEXT offsets
+- parser regression coverage for nonzero `$NEXTDATA`, which is rejected explicitly until full multi-data-set loading is implemented
 - current compatibility target: `39/39` files pass under `--require-all-pass`
 
 The manifest stores, for every dataset:

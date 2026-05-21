@@ -33,7 +33,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 ## Current Capabilities
 
 - Deterministic gating and replay in a shared Rust core
-- FCS parsing crate for ingestion and metadata inspection, including tolerant keyword lookup, DATA offset reconciliation, and float, double, ASCII, byte-aligned integer, and packed integer event payloads
+- FCS parsing crate for ingestion and metadata inspection, including tolerant keyword lookup, DATA offset reconciliation, explicit multi-data-set detection, and float, double, ASCII, byte-aligned integer, and packed integer event payloads
 - Authentic public FCS compatibility gate with `39/39` pinned files passing under `--require-all-pass`
 - Qt/QML desktop with live rectangle, polygon, quadrant, and histogram range-gate authoring plus append-only exact and drag-handle gate refinement
 - Desktop FCS import and multi-sample switching in one local session
@@ -58,6 +58,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Multi-factor cohort labels, group template tools, and richer cohort-review layouts are not implemented yet
 - Workspace bundles copy FCS sources and validate saved integrity metadata today, but derived caches, recovery snapshots, compression, and signed package manifests are not implemented yet
 - Derived metrics are limited to positive fraction and mean ratio today; custom formula editors and spreadsheet-style expressions are not implemented yet
+- FCS files with nonzero `$NEXTDATA` are detected and rejected today; loading every data set from a multi-data-set FCS file is not implemented yet
 - Contour/density plot controls and reference-matched transform tuning are not implemented yet
 - SVG/vector figure export, richer report layouts, and journal style presets are not implemented yet
 - Cloud sync, jobs, and AI assistance are future phases

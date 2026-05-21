@@ -17,6 +17,7 @@
 - Added FCS parser support for fixed-width ASCII event payloads, including ASCII files that omit `$BYTEORD`
 - Added tolerant FCS metadata keyword lookup for lowercase or no-dollar standard keywords
 - Added FCS DATA offset reconciliation that falls back to valid `$BEGINDATA`/`$ENDDATA` TEXT offsets when header offsets are stale or too short
+- Added explicit `$NEXTDATA` detection so multi-data-set FCS files fail loudly instead of silently importing only the first data set
 
 ## v0.1.2 - 2026-03-20
 
