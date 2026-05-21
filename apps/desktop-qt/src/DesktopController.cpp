@@ -2,7 +2,9 @@
 #include "DesktopFigureExport.h"
 #include "DesktopPayloadPolicy.h"
 
+#include <QColor>
 #include <QDir>
+#include <QDateTime>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -128,6 +130,45 @@ void removeTemporaryFigureCaptures(const QStringList &paths) {
     for (const QString &path : paths) {
         removeTemporaryFigureCapture(path);
     }
+}
+
+qreal drawPdfProvenanceFooter(
+    QPainter &painter,
+    const QRectF &pageRect,
+    const QStringList &lines) {
+    if (lines.isEmpty()) {
+        return 0.0;
+    }
+
+    QFont footerFont = painter.font();
+    footerFont.setPointSize(8);
+    footerFont.setBold(false);
+    painter.setFont(footerFont);
+    painter.setPen(QColor(QStringLiteral("#5e6b63")));
+
+    const qreal padding = 10.0;
+    const qreal lineHeight = painter.fontMetrics().height() * 1.25;
+    const qreal footerHeight = (lineHeight * lines.size()) + (padding * 2.0);
+    const QRectF footerRect(
+        pageRect.left(),
+        pageRect.bottom() - footerHeight,
+        pageRect.width(),
+        footerHeight);
+
+    painter.drawLine(
+        QPointF(footerRect.left(), footerRect.top()),
+        QPointF(footerRect.right(), footerRect.top()));
+
+    qreal y = footerRect.top() + padding;
+    for (const QString &line : lines) {
+        painter.drawText(
+            QRectF(footerRect.left(), y, footerRect.width(), lineHeight),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            line);
+        y += lineHeight;
+    }
+
+    return footerHeight;
 }
 
 QVariantMap pointColumnsFromPointMaps(const QVariantList &points) {
@@ -954,7 +995,14 @@ bool DesktopController::exportFigurePdfFromImage(
         return false;
     }
 
-    const QRectF targetRect = fitFigureIntoSlot(image.size(), printer.pageRect(QPrinter::DevicePixel));
+    const QRectF pageRect = printer.pageRect(QPrinter::DevicePixel);
+    const qreal footerHeight = drawPdfProvenanceFooter(painter, pageRect, figureProvenanceLines());
+    const QRectF figureRect(
+        pageRect.left(),
+        pageRect.top(),
+        pageRect.width(),
+        std::max<qreal>(1.0, pageRect.height() - footerHeight - 16.0));
+    const QRectF targetRect = fitFigureIntoSlot(image.size(), figureRect);
     painter.drawImage(targetRect, image);
     painter.end();
     return true;
@@ -1005,6 +1053,7 @@ bool DesktopController::exportFigureReportPdfFromImages(
 
     const QRectF pageRect = printer.pageRect(QPrinter::DevicePixel);
     const qreal gap = std::max<qreal>(24.0, pageRect.height() * 0.018);
+    const qreal footerHeight = drawPdfProvenanceFooter(painter, pageRect, figureProvenanceLines());
     qreal y = pageRect.top();
 
     const QString reportTitle = title.trimmed().isEmpty() ? QStringLiteral("Parallax Plot Report") : title.trimmed();
@@ -1012,6 +1061,7 @@ bool DesktopController::exportFigureReportPdfFromImages(
     titleFont.setPointSize(16);
     titleFont.setBold(true);
     painter.setFont(titleFont);
+    painter.setPen(QColor(QStringLiteral("#2e2216")));
     const qreal titleHeight = painter.fontMetrics().height() * 1.4;
     painter.drawText(
         QRectF(pageRect.left(), y, pageRect.width(), titleHeight),
@@ -1029,7 +1079,7 @@ bool DesktopController::exportFigureReportPdfFromImages(
         pageRect.left(),
         y,
         pageRect.width(),
-        std::max<qreal>(1.0, pageRect.bottom() - y));
+        std::max<qreal>(1.0, pageRect.height() - (y - pageRect.top()) - footerHeight - gap));
     const QList<QRectF> targetRects = stackFigureReportRects(imageSizes, contentRect, gap);
     for (int i = 0; i < targetRects.size(); ++i) {
         painter.drawImage(targetRects.at(i), images.at(i));
@@ -1853,6 +1903,35 @@ void DesktopController::setWorkspacePath(const QString &path) {
 
     workspacePath_ = path;
     emit workspacePathChanged();
+}
+
+QStringList DesktopController::figureProvenanceLines() const {
+    QString sampleName = sample_.value(QStringLiteral("display_name")).toString();
+    if (sampleName.isEmpty()) {
+        sampleName = sample_.value(QStringLiteral("id")).toString();
+    }
+    if (sampleName.isEmpty()) {
+        sampleName = QStringLiteral("Demo Sample");
+    }
+    const QString population =
+        selectedPopulationKey_.isEmpty() || selectedPopulationKey_ == QStringLiteral("__all__")
+            ? QStringLiteral("All events")
+            : selectedPopulationKey_;
+    const QString workspace =
+        workspacePath_.isEmpty() ? QStringLiteral("not saved") : workspacePath_;
+    const QString generatedAt =
+        QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyy-MM-dd'T'HH:mm:ss.zzz'Z'"));
+
+    return {
+        QStringLiteral("Sample: %1 | Population: %2 | Commands: %3")
+            .arg(sampleName, population)
+            .arg(commandCount_),
+        QStringLiteral("Command log: %1 | Execution: %2")
+            .arg(commandLogHash_.isEmpty() ? QStringLiteral("n/a") : commandLogHash_,
+                 executionHash_.isEmpty() ? QStringLiteral("n/a") : executionHash_),
+        QStringLiteral("Workspace: %1 | Generated UTC: %2")
+            .arg(workspace, generatedAt),
+    };
 }
 
 bool DesktopController::setDerivedMetric(const QJsonObject &metric) {

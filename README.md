@@ -40,7 +40,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Workspace save/load from source paths plus portable `.parallax` bundles that copy FCS sources into the workspace directory
 - Parsed FCS compensation toggle, manual spillover override with QC, plus per-channel linear, signed-log10, asinh, biexponential, and logicle transform presets
 - Native histogram panel with population-aware highlighting, drag-authored range gates, exact min/max threshold entry, and midpoint `Low Gate` / `High Gate` shortcuts
-- High-resolution PNG, page PDF, and single-page plot report PDF export with interaction controls hidden during capture
+- High-resolution PNG, provenance-footed page PDF, and single-page plot report PDF export with interaction controls hidden during capture
 - Population stats panel with matched-event counts, parent/all frequencies, and per-channel mean/median summaries
 - CSV export for active-sample population stats
 - Active-sample gate-template application across the other loaded samples

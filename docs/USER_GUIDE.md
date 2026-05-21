@@ -146,7 +146,8 @@ How it behaves:
 - interaction controls are hidden during the capture so the image includes the title, axis label, highlighted count, plot, and overlays without UI buttons
 - PNG export writes an image suitable for manuscript drafts, slides, and lab notebooks
 - PDF export wraps the same high-resolution capture onto a page-oriented PDF for sharing and review
-- plot report PDF export captures the visible plot cards with controls hidden and lays them out together on a single landscape page
+- PDF exports include a provenance footer with the sample, selected population, command count, command-log hash, execution hash, workspace, and generation time
+- plot report PDF export captures the visible plot cards with controls hidden and lays them out together on a single landscape page with the same provenance footer
 
 Current limit:
 

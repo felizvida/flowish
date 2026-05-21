@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -168,6 +169,7 @@ private:
     void setLastError(const QString &message);
     void setWorkspacePath(const QString &path);
     bool setDerivedMetric(const QJsonObject &metric);
+    QStringList figureProvenanceLines() const;
     QString buildPresetCommandJson(const QString &presetId) const;
     bool presetIsAvailable(const QString &presetId) const;
     bool commitInteractiveCommand(const QJsonObject &command, const QString &populationId);

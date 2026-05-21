@@ -183,6 +183,7 @@ Expected result:
 - interaction controls are hidden during the capture
 - the export keeps the plot title, axis label, highlighted count, and current gate overlays
 - PDF export places the same capture onto a page-oriented PDF for review or sharing
+- PDF export adds a provenance footer with command-log and execution hashes
 
 ## Step 10b. Export A Plot Report
 
@@ -193,6 +194,7 @@ Expected result:
 - Parallax captures the visible plot cards with interaction controls hidden
 - the report PDF places the current plot panels together on one landscape page
 - the report reflects the current sample, gates, transforms, selected population, and plot-view ranges
+- the report footer records the sample, selected population, command-log hash, execution hash, workspace, and generation time
 
 ## Step 11. Inspect Population Stats
 
