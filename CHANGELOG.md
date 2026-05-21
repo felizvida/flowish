@@ -16,6 +16,7 @@
 - Added FCS parser support for non-byte-aligned packed integer event payloads, including event-byte-padded and global-bit-stream layouts
 - Added FCS parser support for fixed-width ASCII event payloads, including ASCII files that omit `$BYTEORD`
 - Added tolerant FCS metadata keyword lookup for lowercase or no-dollar standard keywords
+- Added FCS DATA offset reconciliation that falls back to valid `$BEGINDATA`/`$ENDDATA` TEXT offsets when header offsets are stale or too short
 
 ## v0.1.2 - 2026-03-20
 

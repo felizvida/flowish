@@ -122,8 +122,10 @@ pub fn parse(bytes: &[u8]) -> Result<FcsFile, FcsError> {
 
     let channels = parse_channels(&metadata, parameter_count)?;
     let compensation = parse_compensation(&metadata)?;
-    let data_start = resolve_offset(&metadata, "$BEGINDATA", header.data_start)?;
-    let data_end = resolve_offset(&metadata, "$ENDDATA", header.data_end)?;
+    let data_length_expectation =
+        data_length_expectation(&channels, event_count, parameter_count, data_type)?;
+    let (data_start, data_end) =
+        resolve_data_offsets(&metadata, &header, bytes.len(), &data_length_expectation)?;
     let data_segment = slice_inclusive(bytes, "DATA", data_start, data_end)?;
     let events = decode_events(
         data_segment,
@@ -405,15 +407,100 @@ fn parse_numeric_range(value: &str) -> Result<u64, ()> {
     Ok(parsed.ceil() as u64)
 }
 
-fn resolve_offset(
+fn required_offset(
     metadata: &BTreeMap<String, String>,
     key: &'static str,
-    header_value: usize,
 ) -> Result<usize, FcsError> {
-    if header_value != 0 {
-        return Ok(header_value);
-    }
     required_usize(metadata, key)
+}
+
+fn optional_offset(
+    metadata: &BTreeMap<String, String>,
+    key: &'static str,
+) -> Result<Option<usize>, FcsError> {
+    match metadata_value(metadata, key) {
+        Some(value) => value
+            .trim()
+            .parse::<usize>()
+            .map(Some)
+            .map_err(|_| FcsError::InvalidMetadata(key)),
+        None => Ok(None),
+    }
+}
+
+fn resolve_data_offsets(
+    metadata: &BTreeMap<String, String>,
+    header: &FcsHeader,
+    file_len: usize,
+    data_length_expectation: &DataLengthExpectation,
+) -> Result<(usize, usize), FcsError> {
+    let header_candidate = if header.data_start != 0 || header.data_end != 0 {
+        Some((header.data_start, header.data_end))
+    } else {
+        None
+    };
+    let metadata_candidate = match (
+        optional_offset(metadata, "$BEGINDATA")?,
+        optional_offset(metadata, "$ENDDATA")?,
+    ) {
+        (Some(start), Some(end)) => Some((start, end)),
+        (Some(_), None) => return Err(FcsError::InvalidMetadata("$ENDDATA")),
+        (None, Some(_)) => return Err(FcsError::InvalidMetadata("$BEGINDATA")),
+        (None, None) => None,
+    };
+
+    let header_score = header_candidate
+        .map(|candidate| data_candidate_score(candidate, file_len, data_length_expectation))
+        .unwrap_or(0);
+    let metadata_score = metadata_candidate
+        .map(|candidate| data_candidate_score(candidate, file_len, data_length_expectation))
+        .unwrap_or(0);
+
+    if let Some(candidate) = metadata_candidate {
+        if metadata_score > header_score {
+            return Ok(candidate);
+        }
+    }
+
+    if let Some(candidate) = header_candidate {
+        if header_score > 0 {
+            return Ok(candidate);
+        }
+    }
+
+    if let Some(candidate) = metadata_candidate {
+        if metadata_score > 0 {
+            return Ok(candidate);
+        }
+    }
+
+    if let Some(candidate) = header_candidate {
+        return Ok(candidate);
+    }
+
+    Ok((
+        required_offset(metadata, "$BEGINDATA")?,
+        required_offset(metadata, "$ENDDATA")?,
+    ))
+}
+
+fn data_candidate_score(
+    candidate: (usize, usize),
+    file_len: usize,
+    expectation: &DataLengthExpectation,
+) -> u8 {
+    let (start, end) = candidate;
+    if end < start || end >= file_len {
+        return 0;
+    }
+    let len = end - start + 1;
+    if expectation.exact_lengths.contains(&len) {
+        return 3;
+    }
+    if len >= expectation.minimum {
+        return 2;
+    }
+    0
 }
 
 fn parse_channels(
@@ -587,6 +674,104 @@ fn decode_events(
             byte_order,
         ),
     }
+}
+
+struct DataLengthExpectation {
+    minimum: usize,
+    exact_lengths: Vec<usize>,
+}
+
+fn data_length_expectation(
+    channels: &[FcsChannel],
+    event_count: usize,
+    parameter_count: usize,
+    data_type: char,
+) -> Result<DataLengthExpectation, FcsError> {
+    let bytes_per_event_candidates = match data_type {
+        'I' | 'i' => {
+            let bit_widths = channels
+                .iter()
+                .map(|channel| {
+                    let bits = channel.bits.ok_or(FcsError::InvalidMetadata("$PnB"))?;
+                    if bits == 0 || bits > 64 {
+                        return Err(FcsError::Unsupported(format!(
+                            "unsupported integer width {} bits",
+                            bits
+                        )));
+                    }
+                    Ok(bits)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if bit_widths.iter().all(|bits| bits % 8 == 0) {
+                vec![
+                    bit_widths
+                        .iter()
+                        .try_fold(0usize, |total, bits| {
+                            total.checked_add((*bits / 8) as usize)
+                        })
+                        .ok_or_else(|| {
+                            FcsError::Unsupported("integer event width overflow".to_string())
+                        })?,
+                ]
+            } else {
+                let bits_per_event = bit_widths
+                    .iter()
+                    .try_fold(0usize, |total, bits| total.checked_add(*bits as usize))
+                    .ok_or_else(|| {
+                        FcsError::Unsupported("integer event width overflow".to_string())
+                    })?;
+                let global_bytes =
+                    bits_to_bytes(bits_per_event.checked_mul(event_count).ok_or_else(|| {
+                        FcsError::Unsupported("integer DATA bit width overflow".to_string())
+                    })?);
+                let padded_bytes = bits_to_bytes(bits_per_event)
+                    .checked_mul(event_count)
+                    .ok_or_else(|| {
+                        FcsError::Unsupported("integer DATA byte width overflow".to_string())
+                    })?;
+                let mut exact_lengths = vec![global_bytes, padded_bytes];
+                exact_lengths.sort_unstable();
+                exact_lengths.dedup();
+                return Ok(DataLengthExpectation {
+                    minimum: *exact_lengths.first().unwrap_or(&0),
+                    exact_lengths,
+                });
+            }
+        }
+        'F' | 'f' => vec![parameter_count.checked_mul(4).ok_or_else(|| {
+            FcsError::Unsupported("floating-point event width overflow".to_string())
+        })?],
+        'D' | 'd' => vec![
+            parameter_count
+                .checked_mul(8)
+                .ok_or_else(|| FcsError::Unsupported("double event width overflow".to_string()))?,
+        ],
+        'A' | 'a' => vec![
+            channel_byte_widths(channels, "ASCII")?
+                .iter()
+                .try_fold(0usize, |total, width| total.checked_add(*width))
+                .ok_or_else(|| FcsError::Unsupported("ASCII event width overflow".to_string()))?,
+        ],
+        other => {
+            return Err(FcsError::Unsupported(format!(
+                "unsupported data type '{other}'"
+            )));
+        }
+    };
+
+    let exact_lengths = bytes_per_event_candidates
+        .into_iter()
+        .map(|bytes_per_event| {
+            bytes_per_event
+                .checked_mul(event_count)
+                .ok_or_else(|| FcsError::Unsupported("DATA byte width overflow".to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let minimum = *exact_lengths.iter().min().unwrap_or(&0);
+    Ok(DataLengthExpectation {
+        minimum,
+        exact_lengths,
+    })
 }
 
 fn channel_byte_widths(channels: &[FcsChannel], label: &str) -> Result<Vec<usize>, FcsError> {
@@ -831,7 +1016,7 @@ fn read_f64(bytes: &[u8], endianness: Endianness) -> Result<f64, FcsError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompensationMatrix, Endianness, FcsError, parse};
+    use super::{CompensationMatrix, Endianness, parse};
 
     #[test]
     fn parses_channels_metadata_and_compensation() {
@@ -880,17 +1065,43 @@ mod tests {
     }
 
     #[test]
-    fn rejects_out_of_bounds_segments_cleanly() {
+    fn falls_back_to_text_data_offsets_when_header_offsets_are_out_of_bounds() {
         let mut bytes = build_test_fcs(vec!["FSC-A"], vec![vec![1.0]], None);
+        let original = parse(&bytes).expect("baseline fcs");
         bytes[26..34].copy_from_slice(format!("{:>8}", 9_999_999).as_bytes());
-        let error = parse(&bytes).expect_err("invalid data offset");
-        assert!(matches!(
-            error,
-            FcsError::SegmentOutOfBounds {
-                segment: "DATA",
-                ..
-            }
-        ));
+        bytes[34..42].copy_from_slice(format!("{:>8}", 9_999_999).as_bytes());
+
+        let parsed = parse(&bytes).expect("TEXT data offsets should recover stale header offsets");
+        assert_eq!(parsed.header.data_start, original.header.data_start);
+        assert_eq!(parsed.header.data_end, original.header.data_end);
+        assert_eq!(parsed.events, vec![vec![1.0]]);
+    }
+
+    #[test]
+    fn falls_back_to_text_data_offsets_when_header_segment_is_too_short() {
+        let mut bytes = build_test_fcs(vec!["FSC-A", "SSC-A"], vec![vec![1.0, 2.0]], None);
+        let original = parse(&bytes).expect("baseline fcs");
+        write_field(&mut bytes, 26, 34, original.header.data_start);
+        write_field(&mut bytes, 34, 42, original.header.data_start + 3);
+
+        let parsed = parse(&bytes).expect("TEXT data offsets should recover short header segment");
+        assert_eq!(parsed.header.data_start, original.header.data_start);
+        assert_eq!(parsed.header.data_end, original.header.data_end);
+        assert_eq!(parsed.events, vec![vec![1.0, 2.0]]);
+    }
+
+    #[test]
+    fn prefers_exact_text_data_offsets_over_oversized_header_segment() {
+        let mut bytes = build_test_fcs(vec!["FSC-A"], vec![vec![1.0]], None);
+        let original = parse(&bytes).expect("baseline fcs");
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+        write_field(&mut bytes, 26, 34, original.header.data_start);
+        write_field(&mut bytes, 34, 42, original.header.data_end + 4);
+
+        let parsed = parse(&bytes).expect("exact TEXT offsets should beat oversized header span");
+        assert_eq!(parsed.header.data_start, original.header.data_start);
+        assert_eq!(parsed.header.data_end, original.header.data_end);
+        assert_eq!(parsed.events, vec![vec![1.0]]);
     }
 
     #[test]
@@ -1146,14 +1357,29 @@ mod tests {
         let mut data_start = text_start + text.len();
         let mut data_end = data_start + data_bytes.len().saturating_sub(1);
 
-        metadata.push((
+        set_metadata_value(
+            &mut metadata,
             metadata_key(key_style, "$BEGINDATA".to_string()),
             data_start.to_string(),
-        ));
-        metadata.push((
+        );
+        set_metadata_value(
+            &mut metadata,
             metadata_key(key_style, "$ENDDATA".to_string()),
             data_end.to_string(),
-        ));
+        );
+        text = build_text_segment(delimiter, &metadata);
+        data_start = text_start + text.len();
+        data_end = data_start + data_bytes.len().saturating_sub(1);
+        set_metadata_value(
+            &mut metadata,
+            metadata_key(key_style, "$BEGINDATA".to_string()),
+            data_start.to_string(),
+        );
+        set_metadata_value(
+            &mut metadata,
+            metadata_key(key_style, "$ENDDATA".to_string()),
+            data_end.to_string(),
+        );
         text = build_text_segment(delimiter, &metadata);
         data_start = text_start + text.len();
         data_end = data_start + data_bytes.len().saturating_sub(1);
@@ -1219,8 +1445,21 @@ mod tests {
         let mut data_start = text_start + text.len();
         let mut data_end = data_start + data_bytes.len().saturating_sub(1);
 
-        metadata.push(("$BEGINDATA".to_string(), data_start.to_string()));
-        metadata.push(("$ENDDATA".to_string(), data_end.to_string()));
+        set_metadata_value(
+            &mut metadata,
+            "$BEGINDATA".to_string(),
+            data_start.to_string(),
+        );
+        set_metadata_value(&mut metadata, "$ENDDATA".to_string(), data_end.to_string());
+        text = build_text_segment(delimiter, &metadata);
+        data_start = text_start + text.len();
+        data_end = data_start + data_bytes.len().saturating_sub(1);
+        set_metadata_value(
+            &mut metadata,
+            "$BEGINDATA".to_string(),
+            data_start.to_string(),
+        );
+        set_metadata_value(&mut metadata, "$ENDDATA".to_string(), data_end.to_string());
         text = build_text_segment(delimiter, &metadata);
         data_start = text_start + text.len();
         data_end = data_start + data_bytes.len().saturating_sub(1);
@@ -1288,8 +1527,21 @@ mod tests {
         let mut data_start = text_start + text.len();
         let mut data_end = data_start + data_bytes.len().saturating_sub(1);
 
-        metadata.push(("$BEGINDATA".to_string(), data_start.to_string()));
-        metadata.push(("$ENDDATA".to_string(), data_end.to_string()));
+        set_metadata_value(
+            &mut metadata,
+            "$BEGINDATA".to_string(),
+            data_start.to_string(),
+        );
+        set_metadata_value(&mut metadata, "$ENDDATA".to_string(), data_end.to_string());
+        text = build_text_segment(delimiter, &metadata);
+        data_start = text_start + text.len();
+        data_end = data_start + data_bytes.len().saturating_sub(1);
+        set_metadata_value(
+            &mut metadata,
+            "$BEGINDATA".to_string(),
+            data_start.to_string(),
+        );
+        set_metadata_value(&mut metadata, "$ENDDATA".to_string(), data_end.to_string());
         text = build_text_segment(delimiter, &metadata);
         data_start = text_start + text.len();
         data_end = data_start + data_bytes.len().saturating_sub(1);
@@ -1379,6 +1631,17 @@ mod tests {
                 bytes[index..index + from.len()].copy_from_slice(to);
             }
         }
+    }
+
+    fn set_metadata_value(metadata: &mut Vec<(String, String)>, key: String, value: String) {
+        if let Some((_, existing_value)) = metadata
+            .iter_mut()
+            .find(|(existing_key, _)| existing_key == &key)
+        {
+            *existing_value = value;
+            return;
+        }
+        metadata.push((key, value));
     }
 
     fn build_text_segment(delimiter: char, metadata: &[(String, String)]) -> Vec<u8> {
