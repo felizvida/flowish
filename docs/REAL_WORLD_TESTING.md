@@ -13,6 +13,7 @@ The suite lives in:
 - `3` pinned upstream sources: `fcsparser`, `FlowIO`, and `FlowCal`
 - mixed vendors and exporters: BD, Cytek, Guava, Miltenyi, Attune-derived files, and FlowCal's documented E. coli plus calibration-bead tutorial experiment
 - mixed formats and payloads: `FCS2.0`, `FCS3.0`, `FCS3.1`, integer and float data, big and little endian, files with and without compensation matrices
+- parser regression coverage for non-byte-aligned packed integer payloads, including event-byte-padded and global-bit-stream layouts
 - current compatibility target: `39/39` files pass under `--require-all-pass`
 
 The manifest stores, for every dataset:

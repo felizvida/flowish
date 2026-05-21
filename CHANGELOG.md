@@ -13,6 +13,7 @@
 - Added per-plot PDF figure export using the same high-resolution control-hidden capture path as PNG export
 - Added single-page plot report PDF export that captures the visible plot panels with controls hidden
 - Added provenance footers to PDF figure and plot-report exports with sample, population, command-log hash, execution hash, workspace, and generation time
+- Added FCS parser support for non-byte-aligned packed integer event payloads, including event-byte-padded and global-bit-stream layouts
 
 ## v0.1.2 - 2026-03-20
 

@@ -494,29 +494,45 @@ fn decode_events(
     data_type: char,
     byte_order: Endianness,
 ) -> Result<Vec<Vec<f64>>, FcsError> {
-    let bytes_per_event = match data_type {
-        'I' | 'i' => channels
-            .iter()
-            .map(|channel| {
-                channel
-                    .bits
-                    .ok_or_else(|| FcsError::InvalidMetadata("$PnB"))
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .iter()
-            .map(|bits| {
-                if bits % 8 != 0 || *bits == 0 {
-                    Err(FcsError::Unsupported(format!(
-                        "unsupported integer width {} bits",
-                        bits
-                    )))
-                } else {
-                    Ok((*bits / 8) as usize)
+    let event_layout = match data_type {
+        'I' | 'i' => {
+            let bit_widths = channels
+                .iter()
+                .map(|channel| {
+                    let bits = channel.bits.ok_or(FcsError::InvalidMetadata("$PnB"))?;
+                    if bits == 0 || bits > 64 {
+                        return Err(FcsError::Unsupported(format!(
+                            "unsupported integer width {} bits",
+                            bits
+                        )));
+                    }
+                    Ok(bits)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if bit_widths.iter().all(|bits| bits % 8 == 0) {
+                EventLayout::ByteAligned(
+                    bit_widths.iter().map(|bits| (*bits / 8) as usize).collect(),
+                )
+            } else {
+                let bits_per_event = bit_widths
+                    .iter()
+                    .try_fold(0usize, |total, bits| total.checked_add(*bits as usize))
+                    .ok_or_else(|| {
+                        FcsError::Unsupported("integer event width overflow".to_string())
+                    })?;
+                EventLayout::BitPacked {
+                    bit_widths,
+                    bits_per_event,
+                    storage: infer_packed_integer_storage(
+                        bytes.len(),
+                        bits_per_event,
+                        event_count,
+                    )?,
                 }
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-        'F' | 'f' => vec![4; parameter_count],
-        'D' | 'd' => vec![8; parameter_count],
+            }
+        }
+        'F' | 'f' => EventLayout::ByteAligned(vec![4; parameter_count]),
+        'D' | 'd' => EventLayout::ByteAligned(vec![8; parameter_count]),
         other => {
             return Err(FcsError::Unsupported(format!(
                 "unsupported data type '{other}'"
@@ -524,6 +540,90 @@ fn decode_events(
         }
     };
 
+    match event_layout {
+        EventLayout::ByteAligned(bytes_per_event) => decode_byte_aligned_events(
+            bytes,
+            bytes_per_event,
+            event_count,
+            parameter_count,
+            data_type,
+            byte_order,
+        ),
+        EventLayout::BitPacked {
+            bit_widths,
+            bits_per_event,
+            storage,
+        } => decode_bit_packed_integer_events(
+            bytes,
+            &bit_widths,
+            bits_per_event,
+            event_count,
+            storage,
+            byte_order,
+        ),
+    }
+}
+
+enum EventLayout {
+    ByteAligned(Vec<usize>),
+    BitPacked {
+        bit_widths: Vec<u32>,
+        bits_per_event: usize,
+        storage: PackedIntegerStorage,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PackedIntegerStorage {
+    GlobalBitStream,
+    EventBytePadded,
+}
+
+fn infer_packed_integer_storage(
+    available_bytes: usize,
+    bits_per_event: usize,
+    event_count: usize,
+) -> Result<PackedIntegerStorage, FcsError> {
+    let global_expected = bits_to_bytes(
+        bits_per_event
+            .checked_mul(event_count)
+            .ok_or_else(|| FcsError::Unsupported("integer DATA bit width overflow".to_string()))?,
+    );
+    let padded_expected = bits_to_bytes(bits_per_event)
+        .checked_mul(event_count)
+        .ok_or_else(|| FcsError::Unsupported("integer DATA byte width overflow".to_string()))?;
+
+    // Prefer exact global bit-stream matches; otherwise accept record layouts
+    // where each event is padded to the next byte boundary.
+    if available_bytes == global_expected {
+        return Ok(PackedIntegerStorage::GlobalBitStream);
+    }
+    if available_bytes >= padded_expected {
+        return Ok(PackedIntegerStorage::EventBytePadded);
+    }
+    if available_bytes >= global_expected {
+        return Ok(PackedIntegerStorage::GlobalBitStream);
+    }
+
+    Err(FcsError::InvalidHeader(format!(
+        "DATA segment is {} bytes but at least {} were required",
+        available_bytes,
+        global_expected.min(padded_expected)
+    )))
+}
+
+fn bits_to_bytes(bits: usize) -> usize {
+    bits.div_ceil(8)
+}
+
+fn decode_byte_aligned_events(
+    bytes: &[u8],
+    bytes_per_event: Vec<usize>,
+    event_count: usize,
+    parameter_count: usize,
+    data_type: char,
+    byte_order: Endianness,
+) -> Result<Vec<Vec<f64>>, FcsError> {
     let expected_bytes = bytes_per_event.iter().sum::<usize>() * event_count;
     if bytes.len() < expected_bytes {
         return Err(FcsError::InvalidHeader(format!(
@@ -554,6 +654,49 @@ fn decode_events(
     Ok(events)
 }
 
+fn decode_bit_packed_integer_events(
+    bytes: &[u8],
+    bit_widths: &[u32],
+    bits_per_event: usize,
+    event_count: usize,
+    storage: PackedIntegerStorage,
+    byte_order: Endianness,
+) -> Result<Vec<Vec<f64>>, FcsError> {
+    let required_bytes = match storage {
+        PackedIntegerStorage::GlobalBitStream => {
+            bits_to_bytes(bits_per_event.checked_mul(event_count).ok_or_else(|| {
+                FcsError::Unsupported("integer DATA bit width overflow".to_string())
+            })?)
+        }
+        PackedIntegerStorage::EventBytePadded => bits_to_bytes(bits_per_event)
+            .checked_mul(event_count)
+            .ok_or_else(|| FcsError::Unsupported("integer DATA byte width overflow".to_string()))?,
+    };
+    if bytes.len() < required_bytes {
+        return Err(FcsError::InvalidHeader(format!(
+            "DATA segment is {} bytes but at least {} were required",
+            bytes.len(),
+            required_bytes
+        )));
+    }
+
+    let mut events = Vec::with_capacity(event_count);
+    let event_stride_bits = match storage {
+        PackedIntegerStorage::GlobalBitStream => bits_per_event,
+        PackedIntegerStorage::EventBytePadded => bits_to_bytes(bits_per_event) * 8,
+    };
+    for event_index in 0..event_count {
+        let mut bit_cursor = event_index * event_stride_bits;
+        let mut row = Vec::with_capacity(bit_widths.len());
+        for width in bit_widths {
+            row.push(read_packed_integer(bytes, bit_cursor, *width, byte_order)? as f64);
+            bit_cursor += *width as usize;
+        }
+        events.push(row);
+    }
+    Ok(events)
+}
+
 fn read_integer(bytes: &[u8], endianness: Endianness) -> u64 {
     match endianness {
         Endianness::Little => bytes.iter().enumerate().fold(0u64, |acc, (index, byte)| {
@@ -563,6 +706,42 @@ fn read_integer(bytes: &[u8], endianness: Endianness) -> u64 {
             .iter()
             .fold(0u64, |acc, byte| (acc << 8) | u64::from(*byte)),
     }
+}
+
+fn read_packed_integer(
+    bytes: &[u8],
+    start_bit: usize,
+    width: u32,
+    endianness: Endianness,
+) -> Result<u64, FcsError> {
+    if width == 0 || width > 64 {
+        return Err(FcsError::Unsupported(format!(
+            "unsupported integer width {} bits",
+            width
+        )));
+    }
+
+    let mut value = 0u64;
+    for bit_index in 0..width as usize {
+        let bit = read_packed_bit(bytes, start_bit + bit_index, endianness)?;
+        match endianness {
+            Endianness::Little => value |= u64::from(bit) << bit_index,
+            Endianness::Big => value = (value << 1) | u64::from(bit),
+        }
+    }
+    Ok(value)
+}
+
+fn read_packed_bit(bytes: &[u8], bit_index: usize, endianness: Endianness) -> Result<u8, FcsError> {
+    let byte = bytes
+        .get(bit_index / 8)
+        .ok_or_else(|| FcsError::InvalidHeader("packed integer DATA ended early".to_string()))?;
+    let bit_in_byte = bit_index % 8;
+    let shift = match endianness {
+        Endianness::Little => bit_in_byte,
+        Endianness::Big => 7 - bit_in_byte,
+    };
+    Ok((byte >> shift) & 1)
 }
 
 fn read_f32(bytes: &[u8], endianness: Endianness) -> Result<f32, FcsError> {
@@ -698,6 +877,44 @@ mod tests {
         assert_eq!(super::parse_numeric_range("23.4094"), Ok(24));
     }
 
+    #[test]
+    fn parses_event_byte_padded_non_byte_aligned_integer_payloads() {
+        let bytes = build_integer_test_fcs(
+            vec![("FL1-A", 10, 1024), ("FL2-A", 10, 1024)],
+            vec![vec![0x155, 0x2aa], vec![0x3ff, 0x001]],
+            Endianness::Little,
+            PackedTestStorage::EventBytePadded,
+        );
+
+        let parsed = parse(&bytes).expect("byte-padded packed integer FCS");
+        assert_eq!(
+            parsed.events,
+            vec![
+                vec![0x155 as f64, 0x2aa as f64],
+                vec![0x3ff as f64, 0x001 as f64]
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_global_bit_stream_non_byte_aligned_integer_payloads() {
+        let bytes = build_integer_test_fcs(
+            vec![("FL1-A", 10, 1024), ("FL2-A", 10, 1024)],
+            vec![vec![0x155, 0x2aa], vec![0x3ff, 0x001]],
+            Endianness::Big,
+            PackedTestStorage::GlobalBitStream,
+        );
+
+        let parsed = parse(&bytes).expect("globally packed integer FCS");
+        assert_eq!(
+            parsed.events,
+            vec![
+                vec![0x155 as f64, 0x2aa as f64],
+                vec![0x3ff as f64, 0x001 as f64]
+            ]
+        );
+    }
+
     fn build_test_fcs(
         channels: Vec<&str>,
         rows: Vec<Vec<f64>>,
@@ -759,6 +976,132 @@ mod tests {
         bytes.extend_from_slice(&text);
         bytes.extend_from_slice(&data_bytes);
         bytes
+    }
+
+    #[derive(Clone, Copy)]
+    enum PackedTestStorage {
+        GlobalBitStream,
+        EventBytePadded,
+    }
+
+    fn build_integer_test_fcs(
+        channels: Vec<(&str, u32, u64)>,
+        rows: Vec<Vec<u64>>,
+        byte_order: Endianness,
+        storage: PackedTestStorage,
+    ) -> Vec<u8> {
+        let delimiter = '/';
+        let event_count = rows.len();
+        let parameter_count = channels.len();
+        let mut metadata = vec![
+            ("$TOT".to_string(), event_count.to_string()),
+            ("$PAR".to_string(), parameter_count.to_string()),
+            ("$DATATYPE".to_string(), "I".to_string()),
+            (
+                "$BYTEORD".to_string(),
+                match byte_order {
+                    Endianness::Little => "1,2,3,4".to_string(),
+                    Endianness::Big => "4,3,2,1".to_string(),
+                },
+            ),
+            ("$MODE".to_string(), "L".to_string()),
+            ("$NEXTDATA".to_string(), "0".to_string()),
+        ];
+
+        for (index, (name, bits, range)) in channels.iter().enumerate() {
+            let channel_index = index + 1;
+            metadata.push((format!("$P{channel_index}N"), (*name).to_string()));
+            metadata.push((format!("$P{channel_index}B"), bits.to_string()));
+            metadata.push((format!("$P{channel_index}R"), range.to_string()));
+        }
+
+        let bit_widths = channels
+            .iter()
+            .map(|(_, bits, _)| *bits)
+            .collect::<Vec<_>>();
+        let data_bytes = pack_integer_rows(&rows, &bit_widths, byte_order, storage);
+
+        let text_start = 58usize;
+        let mut text = build_text_segment(delimiter, &metadata);
+        let mut data_start = text_start + text.len();
+        let mut data_end = data_start + data_bytes.len().saturating_sub(1);
+
+        metadata.push(("$BEGINDATA".to_string(), data_start.to_string()));
+        metadata.push(("$ENDDATA".to_string(), data_end.to_string()));
+        text = build_text_segment(delimiter, &metadata);
+        data_start = text_start + text.len();
+        data_end = data_start + data_bytes.len().saturating_sub(1);
+
+        let mut header = vec![b' '; 58];
+        header[0..6].copy_from_slice(b"FCS3.1");
+        write_field(&mut header, 10, 18, text_start);
+        write_field(&mut header, 18, 26, text_start + text.len() - 1);
+        write_field(&mut header, 26, 34, data_start);
+        write_field(&mut header, 34, 42, data_end);
+        write_field(&mut header, 42, 50, 0);
+        write_field(&mut header, 50, 58, 0);
+
+        let mut bytes = header;
+        bytes.extend_from_slice(&text);
+        bytes.extend_from_slice(&data_bytes);
+        bytes
+    }
+
+    fn pack_integer_rows(
+        rows: &[Vec<u64>],
+        bit_widths: &[u32],
+        byte_order: Endianness,
+        storage: PackedTestStorage,
+    ) -> Vec<u8> {
+        let bits_per_event = bit_widths.iter().map(|bits| *bits as usize).sum::<usize>();
+        let event_stride_bits = match storage {
+            PackedTestStorage::GlobalBitStream => bits_per_event,
+            PackedTestStorage::EventBytePadded => bits_per_event.div_ceil(8) * 8,
+        };
+        let total_bits = match storage {
+            PackedTestStorage::GlobalBitStream => bits_per_event * rows.len(),
+            PackedTestStorage::EventBytePadded => event_stride_bits * rows.len(),
+        };
+        let mut bytes = vec![0u8; total_bits.div_ceil(8)];
+
+        for (event_index, row) in rows.iter().enumerate() {
+            assert_eq!(row.len(), bit_widths.len());
+            let mut bit_cursor = event_index * event_stride_bits;
+            for (value, width) in row.iter().zip(bit_widths) {
+                write_packed_integer(&mut bytes, bit_cursor, *width, *value, byte_order);
+                bit_cursor += *width as usize;
+            }
+        }
+        bytes
+    }
+
+    fn write_packed_integer(
+        bytes: &mut [u8],
+        start_bit: usize,
+        width: u32,
+        value: u64,
+        byte_order: Endianness,
+    ) {
+        assert!(width > 0 && width <= 64);
+        if width < 64 {
+            assert!(value < (1u64 << width));
+        }
+
+        for bit_index in 0..width as usize {
+            let bit = match byte_order {
+                Endianness::Little => (value >> bit_index) & 1,
+                Endianness::Big => (value >> (width as usize - 1 - bit_index)) & 1,
+            };
+            if bit == 0 {
+                continue;
+            }
+            let output_bit = start_bit + bit_index;
+            let shift = match byte_order {
+                Endianness::Little => output_bit % 8,
+                Endianness::Big => 7 - (output_bit % 8),
+            };
+            bytes[output_bit / 8] |= 1u8 << shift;
+        }
     }
 
     fn build_text_segment(delimiter: char, metadata: &[(String, String)]) -> Vec<u8> {
