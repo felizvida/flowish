@@ -108,7 +108,7 @@ pub fn parse(bytes: &[u8]) -> Result<FcsFile, FcsError> {
         .chars()
         .next()
         .ok_or(FcsError::InvalidMetadata("$DATATYPE"))?;
-    let byte_order = match metadata.get("$BYTEORD").map(String::as_str) {
+    let byte_order = match metadata_value(&metadata, "$BYTEORD") {
         Some(value) => parse_byte_order(value)?,
         None if matches!(data_type, 'A' | 'a') => Endianness::Little,
         None => return Err(FcsError::InvalidMetadata("$BYTEORD")),
@@ -330,14 +330,36 @@ fn is_likely_metadata_key(bytes: &[u8]) -> bool {
     is_printable_text_token(bytes) && matches!(bytes.first(), Some(b'$' | b'&'))
 }
 
+fn canonical_metadata_key(value: &str) -> String {
+    let trimmed = value.trim();
+    let without_prefix = trimmed.strip_prefix('$').unwrap_or(trimmed);
+    without_prefix.to_ascii_uppercase()
+}
+
+fn metadata_entry<'a>(
+    metadata: &'a BTreeMap<String, String>,
+    key: &str,
+) -> Option<(&'a str, &'a str)> {
+    if let Some((candidate, value)) = metadata.get_key_value(key) {
+        return Some((candidate.as_str(), value.as_str()));
+    }
+
+    let canonical_key = canonical_metadata_key(key);
+    metadata
+        .iter()
+        .find(|(candidate, _)| canonical_metadata_key(candidate) == canonical_key)
+        .map(|(candidate, value)| (candidate.as_str(), value.as_str()))
+}
+
+fn metadata_value<'a>(metadata: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+    metadata_entry(metadata, key).map(|(_, value)| value)
+}
+
 fn required_metadata<'a>(
     metadata: &'a BTreeMap<String, String>,
     key: &'static str,
 ) -> Result<&'a str, FcsError> {
-    metadata
-        .get(key)
-        .map(String::as_str)
-        .ok_or(FcsError::InvalidMetadata(key))
+    metadata_value(metadata, key).ok_or(FcsError::InvalidMetadata(key))
 }
 
 fn required_usize(
@@ -351,7 +373,7 @@ fn required_usize(
 }
 
 fn optional_u32(metadata: &BTreeMap<String, String>, key: &str) -> Result<Option<u32>, FcsError> {
-    match metadata.get(key) {
+    match metadata_value(metadata, key) {
         Some(value) => value
             .trim()
             .parse::<u32>()
@@ -362,7 +384,7 @@ fn optional_u32(metadata: &BTreeMap<String, String>, key: &str) -> Result<Option
 }
 
 fn optional_u64(metadata: &BTreeMap<String, String>, key: &str) -> Result<Option<u64>, FcsError> {
-    match metadata.get(key) {
+    match metadata_value(metadata, key) {
         Some(value) => parse_numeric_range(value)
             .map(Some)
             .map_err(|_| FcsError::InvalidText(format!("invalid numeric metadata '{key}'"))),
@@ -400,11 +422,10 @@ fn parse_channels(
 ) -> Result<Vec<FcsChannel>, FcsError> {
     (1..=parameter_count)
         .map(|index| {
-            let short_name = metadata
-                .get(&format!("$P{index}N"))
-                .cloned()
-                .ok_or_else(|| FcsError::InvalidMetadata("$PnN"))?;
-            let long_name = metadata.get(&format!("$P{index}S")).cloned();
+            let short_name = metadata_value(metadata, &format!("$P{index}N"))
+                .map(str::to_string)
+                .ok_or(FcsError::InvalidMetadata("$PnN"))?;
+            let long_name = metadata_value(metadata, &format!("$P{index}S")).map(str::to_string);
             let bits = optional_u32(metadata, &format!("$P{index}B"))?;
             let range = optional_u64(metadata, &format!("$P{index}R"))?;
             Ok(FcsChannel {
@@ -424,9 +445,8 @@ fn parse_compensation(
     let entry = ["$SPILLOVER", "SPILLOVER", "$SPILL", "SPILL"]
         .iter()
         .find_map(|key| {
-            metadata
-                .get(*key)
-                .map(|value| ((*key).to_string(), value.clone()))
+            metadata_entry(metadata, key)
+                .map(|(source, value)| (source.to_string(), value.to_string()))
         });
 
     let Some((source_key, raw)) = entry else {
@@ -976,28 +996,136 @@ mod tests {
         assert_eq!(parsed.events, vec![vec![1.0, 2.5]]);
     }
 
+    #[test]
+    fn parses_lowercase_standard_metadata_keywords() {
+        let mut bytes = build_test_fcs(
+            vec!["FSC-A"],
+            vec![vec![42.0]],
+            Some(("spillover", "1,FSC-A,1")),
+        );
+        replace_all_ascii(&mut bytes, "$TOT", "$tot");
+        replace_all_ascii(&mut bytes, "$PAR", "$par");
+        replace_all_ascii(&mut bytes, "$DATATYPE", "$datatype");
+        replace_all_ascii(&mut bytes, "$BYTEORD", "$byteord");
+        replace_all_ascii(&mut bytes, "$MODE", "$mode");
+        replace_all_ascii(&mut bytes, "$BEGINDATA", "$begindata");
+        replace_all_ascii(&mut bytes, "$ENDDATA", "$enddata");
+        replace_all_ascii(&mut bytes, "$P1N", "$p1n");
+        replace_all_ascii(&mut bytes, "$P1B", "$p1b");
+        replace_all_ascii(&mut bytes, "$P1R", "$p1r");
+
+        let parsed = parse(&bytes).expect("lowercase metadata FCS");
+        assert_eq!(parsed.events, vec![vec![42.0]]);
+        assert_eq!(parsed.channels[0].short_name, "FSC-A");
+        assert_eq!(
+            parsed
+                .compensation
+                .as_ref()
+                .map(|matrix| matrix.source_key.as_str()),
+            Some("spillover")
+        );
+    }
+
+    #[test]
+    fn parses_standard_metadata_keywords_without_dollar_prefixes() {
+        let bytes = build_float_test_fcs(
+            vec!["FSC-A", "SSC-A"],
+            vec![vec![1.0, 2.0]],
+            Some(("SPILL", "2,FSC-A,SSC-A,1,0,0,1")),
+            MetadataKeyStyle::NoDollarUppercase,
+        );
+
+        let parsed = parse(&bytes).expect("no-dollar metadata FCS");
+        assert_eq!(parsed.events, vec![vec![1.0, 2.0]]);
+        assert_eq!(parsed.channels[1].short_name, "SSC-A");
+        assert_eq!(
+            parsed
+                .compensation
+                .as_ref()
+                .map(|matrix| matrix.source_key.as_str()),
+            Some("SPILL")
+        );
+    }
+
     fn build_test_fcs(
         channels: Vec<&str>,
         rows: Vec<Vec<f64>>,
         extra_metadata: Option<(&str, &str)>,
     ) -> Vec<u8> {
+        build_float_test_fcs(
+            channels,
+            rows,
+            extra_metadata,
+            MetadataKeyStyle::StandardUppercase,
+        )
+    }
+
+    #[derive(Clone, Copy)]
+    enum MetadataKeyStyle {
+        StandardUppercase,
+        NoDollarUppercase,
+    }
+
+    fn metadata_key(style: MetadataKeyStyle, standard: String) -> String {
+        match style {
+            MetadataKeyStyle::StandardUppercase => standard,
+            MetadataKeyStyle::NoDollarUppercase => standard
+                .strip_prefix('$')
+                .map(str::to_string)
+                .unwrap_or(standard),
+        }
+    }
+
+    fn build_float_test_fcs(
+        channels: Vec<&str>,
+        rows: Vec<Vec<f64>>,
+        extra_metadata: Option<(&str, &str)>,
+        key_style: MetadataKeyStyle,
+    ) -> Vec<u8> {
         let delimiter = '/';
         let event_count = rows.len();
         let parameter_count = channels.len();
         let mut metadata = vec![
-            ("$TOT".to_string(), event_count.to_string()),
-            ("$PAR".to_string(), parameter_count.to_string()),
-            ("$DATATYPE".to_string(), "F".to_string()),
-            ("$BYTEORD".to_string(), "1,2,3,4".to_string()),
-            ("$MODE".to_string(), "L".to_string()),
-            ("$NEXTDATA".to_string(), "0".to_string()),
+            (
+                metadata_key(key_style, "$TOT".to_string()),
+                event_count.to_string(),
+            ),
+            (
+                metadata_key(key_style, "$PAR".to_string()),
+                parameter_count.to_string(),
+            ),
+            (
+                metadata_key(key_style, "$DATATYPE".to_string()),
+                "F".to_string(),
+            ),
+            (
+                metadata_key(key_style, "$BYTEORD".to_string()),
+                "1,2,3,4".to_string(),
+            ),
+            (
+                metadata_key(key_style, "$MODE".to_string()),
+                "L".to_string(),
+            ),
+            (
+                metadata_key(key_style, "$NEXTDATA".to_string()),
+                "0".to_string(),
+            ),
         ];
 
         for (index, name) in channels.iter().enumerate() {
             let channel_index = index + 1;
-            metadata.push((format!("$P{channel_index}N"), (*name).to_string()));
-            metadata.push((format!("$P{channel_index}B"), "32".to_string()));
-            metadata.push((format!("$P{channel_index}R"), "262144".to_string()));
+            metadata.push((
+                metadata_key(key_style, format!("$P{channel_index}N")),
+                (*name).to_string(),
+            ));
+            metadata.push((
+                metadata_key(key_style, format!("$P{channel_index}B")),
+                "32".to_string(),
+            ));
+            metadata.push((
+                metadata_key(key_style, format!("$P{channel_index}R")),
+                "262144".to_string(),
+            ));
         }
 
         if let Some((key, value)) = extra_metadata {
@@ -1018,8 +1146,14 @@ mod tests {
         let mut data_start = text_start + text.len();
         let mut data_end = data_start + data_bytes.len().saturating_sub(1);
 
-        metadata.push(("$BEGINDATA".to_string(), data_start.to_string()));
-        metadata.push(("$ENDDATA".to_string(), data_end.to_string()));
+        metadata.push((
+            metadata_key(key_style, "$BEGINDATA".to_string()),
+            data_start.to_string(),
+        ));
+        metadata.push((
+            metadata_key(key_style, "$ENDDATA".to_string()),
+            data_end.to_string(),
+        ));
         text = build_text_segment(delimiter, &metadata);
         data_start = text_start + text.len();
         data_end = data_start + data_bytes.len().saturating_sub(1);
@@ -1229,6 +1363,21 @@ mod tests {
                 Endianness::Big => 7 - (output_bit % 8),
             };
             bytes[output_bit / 8] |= 1u8 << shift;
+        }
+    }
+
+    fn replace_all_ascii(bytes: &mut [u8], from: &str, to: &str) {
+        assert!(!from.is_empty());
+        assert_eq!(from.len(), to.len());
+        if from.len() > bytes.len() {
+            return;
+        }
+        let from = from.as_bytes();
+        let to = to.as_bytes();
+        for index in 0..=bytes.len().saturating_sub(from.len()) {
+            if &bytes[index..index + from.len()] == from {
+                bytes[index..index + from.len()].copy_from_slice(to);
+            }
         }
     }
 

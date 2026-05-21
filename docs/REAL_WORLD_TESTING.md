@@ -15,6 +15,7 @@ The suite lives in:
 - mixed formats and payloads: `FCS2.0`, `FCS3.0`, `FCS3.1`, integer and float data, big and little endian, files with and without compensation matrices
 - parser regression coverage for non-byte-aligned packed integer payloads, including event-byte-padded and global-bit-stream layouts
 - parser regression coverage for fixed-width ASCII event payloads, including ASCII files without `$BYTEORD`
+- parser regression coverage for lowercase and no-dollar standard metadata keywords
 - current compatibility target: `39/39` files pass under `--require-all-pass`
 
 The manifest stores, for every dataset:

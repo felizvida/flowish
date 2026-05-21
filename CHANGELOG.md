@@ -15,6 +15,7 @@
 - Added provenance footers to PDF figure and plot-report exports with sample, population, command-log hash, execution hash, workspace, and generation time
 - Added FCS parser support for non-byte-aligned packed integer event payloads, including event-byte-padded and global-bit-stream layouts
 - Added FCS parser support for fixed-width ASCII event payloads, including ASCII files that omit `$BYTEORD`
+- Added tolerant FCS metadata keyword lookup for lowercase or no-dollar standard keywords
 
 ## v0.1.2 - 2026-03-20
 
