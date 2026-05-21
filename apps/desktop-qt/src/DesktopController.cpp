@@ -1179,6 +1179,116 @@ bool DesktopController::createHistogramRangeGateForPlot(
     return commitHistogramRangeGateForPlot(plotId, min, max, QStringLiteral("_range"));
 }
 
+bool DesktopController::updateRectangleGate(
+    const QString &populationId,
+    double xMin,
+    double xMax,
+    double yMin,
+    double yMax) {
+    const QString trimmedPopulationId = populationId.trimmed();
+    if (trimmedPopulationId.isEmpty() || trimmedPopulationId == "__all__") {
+        setLastError("Select an existing rectangle population before refining it");
+        return false;
+    }
+    const bool allFinite = std::isfinite(xMin) && std::isfinite(xMax) && std::isfinite(yMin)
+        && std::isfinite(yMax);
+    if (!allFinite || qFuzzyCompare(xMin, xMax) || qFuzzyCompare(yMin, yMax)) {
+        setLastError("Rectangle gate bounds must be finite and distinct");
+        return false;
+    }
+
+    QJsonObject command;
+    command.insert("kind", "update_rectangle_gate");
+    const QString sampleId = activeSampleId();
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("population_id", trimmedPopulationId);
+    command.insert("x_min", qMin(xMin, xMax));
+    command.insert("x_max", qMax(xMin, xMax));
+    command.insert("y_min", qMin(yMin, yMax));
+    command.insert("y_max", qMax(yMin, yMax));
+
+    return dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
+bool DesktopController::updateRangeGate(const QString &populationId, double min, double max) {
+    const QString trimmedPopulationId = populationId.trimmed();
+    if (trimmedPopulationId.isEmpty() || trimmedPopulationId == "__all__") {
+        setLastError("Select an existing range population before refining it");
+        return false;
+    }
+    if (!std::isfinite(min) || !std::isfinite(max) || qFuzzyIsNull(max - min)) {
+        setLastError("Range gate thresholds must be finite and distinct");
+        return false;
+    }
+
+    QJsonObject command;
+    command.insert("kind", "update_range_gate");
+    const QString sampleId = activeSampleId();
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("population_id", trimmedPopulationId);
+    command.insert("min", qMin(min, max));
+    command.insert("max", qMax(min, max));
+
+    return dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
+bool DesktopController::updatePolygonGateFromText(
+    const QString &populationId,
+    const QString &verticesText) {
+    const QString trimmedPopulationId = populationId.trimmed();
+    if (trimmedPopulationId.isEmpty() || trimmedPopulationId == "__all__") {
+        setLastError("Select an existing polygon population before refining it");
+        return false;
+    }
+
+    QString normalized = verticesText;
+    normalized.replace(';', '\n');
+    QJsonArray vertices;
+    for (const QString &line : normalized.split('\n', Qt::SkipEmptyParts)) {
+        const QString trimmedLine = line.trimmed();
+        if (trimmedLine.isEmpty()) {
+            continue;
+        }
+        const QStringList parts = trimmedLine.contains(',')
+            ? trimmedLine.split(',', Qt::SkipEmptyParts)
+            : trimmedLine.split(' ', Qt::SkipEmptyParts);
+        if (parts.size() != 2) {
+            setLastError("Polygon vertices must use one 'x,y' pair per line");
+            return false;
+        }
+        const double x = parts.at(0).trimmed().toDouble();
+        const double y = parts.at(1).trimmed().toDouble();
+        if (!std::isfinite(x) || !std::isfinite(y)) {
+            setLastError("Polygon gate vertices must stay finite");
+            return false;
+        }
+        vertices.push_back(QJsonObject{{"x", x}, {"y", y}});
+    }
+
+    if (vertices.size() < 3) {
+        setLastError("Polygon gates require at least three vertices");
+        return false;
+    }
+
+    QJsonObject command;
+    command.insert("kind", "update_polygon_gate");
+    const QString sampleId = activeSampleId();
+    command.insert(
+        "sample_id",
+        sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
+    command.insert("population_id", trimmedPopulationId);
+    command.insert("vertices", vertices);
+
+    return dispatchCommandJson(QString::fromUtf8(
+        QJsonDocument(command).toJson(QJsonDocument::Compact)));
+}
+
 bool DesktopController::commitHistogramRangeGateForPlot(
     const QString &plotId,
     double min,

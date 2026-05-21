@@ -123,6 +123,16 @@ public:
         const QString &plotId,
         double min,
         double max);
+    Q_INVOKABLE bool updateRectangleGate(
+        const QString &populationId,
+        double xMin,
+        double xMax,
+        double yMin,
+        double yMax);
+    Q_INVOKABLE bool updateRangeGate(const QString &populationId, double min, double max);
+    Q_INVOKABLE bool updatePolygonGateFromText(
+        const QString &populationId,
+        const QString &verticesText);
     Q_INVOKABLE bool createHistogramLowGateForPlot(const QString &plotId);
     Q_INVOKABLE bool createHistogramHighGateForPlot(const QString &plotId);
 

@@ -121,6 +121,7 @@ cargo run -p flowjoish-cli -- inspect-fcs /path/to/file.fcs
 - Plot figure export buttons
 - Portable workspace bundle actions
 - Rectangle and polygon gating tools
+- Gate refinement controls that append explicit update commands
 - Undo, redo, and reset controls
 
 For a guided first session, continue to the [Tutorial](TUTORIAL.md).

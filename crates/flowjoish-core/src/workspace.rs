@@ -96,24 +96,25 @@ impl ReplayEnvironment {
 
 impl CommandLog {
     pub fn replay(&self, environment: &ReplayEnvironment) -> Result<WorkspaceState, ReplayError> {
+        let effective_commands = self.effective_commands()?;
         let mut populations: BTreeMap<String, Population> = BTreeMap::new();
-        let mut graph = Vec::with_capacity(self.records().len());
+        let mut graph = Vec::with_capacity(effective_commands.len());
         let mut execution_hasher = StableHasher::new();
 
-        for record in self.records() {
+        for effective in effective_commands {
             let sample = environment
-                .sample(record.command.sample_id())
+                .sample(effective.command.sample_id())
                 .ok_or_else(|| {
-                    ReplayError::MissingSample(record.command.sample_id().to_string())
+                    ReplayError::MissingSample(effective.command.sample_id().to_string())
                 })?;
 
-            if populations.contains_key(record.command.population_id()) {
+            if populations.contains_key(effective.command.population_id()) {
                 return Err(ReplayError::DuplicatePopulation(
-                    record.command.population_id().to_string(),
+                    effective.command.population_id().to_string(),
                 ));
             }
 
-            let parent_population = match record.command.parent_population() {
+            let parent_population = match effective.command.parent_population() {
                 Some(parent_id) => {
                     let parent = populations.get(parent_id).ok_or_else(|| {
                         ReplayError::UnknownParentPopulation(parent_id.to_string())
@@ -130,7 +131,7 @@ impl CommandLog {
                 None => None,
             };
 
-            let gate = record.command.to_gate_definition()?;
+            let gate = effective.command.to_gate_definition()?;
             let mut population = apply_gate(
                 sample,
                 &gate,
@@ -140,7 +141,7 @@ impl CommandLog {
 
             let mut node_hasher = StableHasher::new();
             node_hasher.update_u64(sample.fingerprint());
-            node_hasher.update_u64(record.command_hash);
+            node_hasher.update_u64(effective.command.stable_hash());
             node_hasher.update_u64(
                 parent_population
                     .as_ref()
@@ -151,11 +152,11 @@ impl CommandLog {
             let node_hash = node_hasher.finish_u64();
             population.node_hash = node_hash;
 
-            execution_hasher.update_u64(record.sequence);
+            execution_hasher.update_u64(effective.sequence);
             execution_hasher.update_u64(node_hash);
 
             graph.push(ExecutionGraphNode {
-                sequence: record.sequence,
+                sequence: effective.sequence,
                 sample_id: sample.sample_id().to_string(),
                 population_id: population.population_id.clone(),
                 parent_population: population.parent_population.clone(),
@@ -243,6 +244,75 @@ mod tests {
                 .matched_events,
             2
         );
+    }
+
+    #[test]
+    fn gate_updates_recompute_descendant_populations() {
+        let mut environment = ReplayEnvironment::new();
+        environment.insert_sample(sample()).expect("sample insert");
+
+        let mut log = CommandLog::new();
+        log.append(Command::RectangleGate {
+            sample_id: "sample-a".to_string(),
+            population_id: "lymphocytes".to_string(),
+            parent_population: None,
+            x_channel: "FSC-A".to_string(),
+            y_channel: "SSC-A".to_string(),
+            x_min: 0.0,
+            x_max: 35.0,
+            y_min: 0.0,
+            y_max: 35.0,
+        });
+        log.append(Command::PolygonGate {
+            sample_id: "sample-a".to_string(),
+            population_id: "cd3_cd4".to_string(),
+            parent_population: Some("lymphocytes".to_string()),
+            x_channel: "CD3".to_string(),
+            y_channel: "CD4".to_string(),
+            vertices: vec![
+                Point2D { x: 0.0, y: 7.0 },
+                Point2D { x: 6.0, y: 7.0 },
+                Point2D { x: 6.0, y: 10.0 },
+                Point2D { x: 0.0, y: 10.0 },
+            ],
+        });
+
+        let before = log.replay(&environment).expect("initial replay");
+        assert_eq!(
+            before
+                .populations
+                .get("cd3_cd4")
+                .expect("child before edit")
+                .matched_events,
+            2
+        );
+
+        log.append(Command::UpdateRectangleGate {
+            sample_id: "sample-a".to_string(),
+            population_id: "lymphocytes".to_string(),
+            x_min: 0.0,
+            x_max: 15.0,
+            y_min: 0.0,
+            y_max: 15.0,
+        });
+        let after = log.replay(&environment).expect("updated replay");
+        assert_eq!(
+            after
+                .populations
+                .get("lymphocytes")
+                .expect("parent after edit")
+                .matched_events,
+            1
+        );
+        assert_eq!(
+            after
+                .populations
+                .get("cd3_cd4")
+                .expect("child after edit")
+                .matched_events,
+            1
+        );
+        assert_ne!(before.execution_hash, after.execution_hash);
     }
 
     #[test]

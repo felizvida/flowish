@@ -102,7 +102,18 @@ You should now see two ordered entries:
 
 This is the important Parallax idea: your analysis is represented as an ordered, replayable sequence of explicit commands.
 
-## Step 6. Create A Histogram Range Gate
+## Step 6. Refine A Gate
+
+Select `lymphocytes` in the population list, then use `Gate Refinement` to tighten one of the rectangle bounds. Click `Append Gate Edit`.
+
+Expected result:
+
+- the command log gains one `update_rectangle_gate`
+- the rectangle overlay moves to the edited geometry
+- child populations recompute from the edited parent gate
+- undo removes only the refinement command and restores the previous gate geometry
+
+## Step 7. Create A Histogram Range Gate
 
 Drag horizontally across the histogram panel to define a one-channel range. For precise thresholds, type numeric values into the histogram panel's `Exact range` min/max fields and click `Apply Range`. For quick midpoint shortcuts, click `Low Gate` for the visible low half or `High Gate` for the visible high half.
 
@@ -114,7 +125,7 @@ Expected result:
 
 For `Low Gate`, Parallax uses the visible minimum through the midpoint. For `High Gate`, it uses the midpoint through the visible maximum. Use `Zoom In`, `Zoom Out`, or `Auto` first if you want to change the visible range before using either shortcut.
 
-## Step 7. Apply A Transform Preset
+## Step 8. Apply A Transform Preset
 
 In the `Analysis Settings` panel, change the transform for `CD3` or `CD4`.
 
@@ -137,7 +148,7 @@ Expected result for an override:
 - the analysis history gains a replayable compensation override action
 - plots, gates, stats, and derived metrics recompute from the overridden compensated values
 
-## Step 8. Refocus And Pan A Plot
+## Step 9. Refocus And Pan A Plot
 
 Select your child population in the population list, then click `Focus` above one of the plots.
 
@@ -154,7 +165,7 @@ Expected result:
 - if you pan after focusing, the subtitle changes to `Panned view`
 - if you use exact bounds, the subtitle changes to `Manual view range`
 
-## Step 9. Export A Plot Figure
+## Step 10. Export A Plot Figure
 
 Click `Export PNG` above one of the plots and choose a destination.
 
@@ -164,7 +175,7 @@ Expected result:
 - interaction controls are hidden during the capture
 - the export keeps the plot title, axis label, highlighted count, and current gate overlays
 
-## Step 10. Inspect Population Stats
+## Step 11. Inspect Population Stats
 
 Look at the `Population Stats` panel in the left rail while your child population is selected.
 
@@ -176,7 +187,7 @@ Expected result:
 
 If you want a file output, click `Export Stats CSV` and save the active sample's stats table.
 
-## Step 11. Configure A Derived Metric
+## Step 12. Configure A Derived Metric
 
 Use the `Derived Metric` panel in the left rail while your child population is still selected.
 
@@ -191,7 +202,7 @@ Expected result:
 - if you loaded multiple samples, the cohort summary also shows the cohort-level mean for that metric
 - `Export Derived Metric CSV` saves the selected population's derived-metric table
 
-## Step 12. Optional Batch Workflow
+## Step 13. Optional Batch Workflow
 
 If you imported more than one compatible sample, keep your current sample selected and click `Apply Template To Other Samples`.
 
@@ -209,7 +220,7 @@ Expected result:
 - you can click `Export Cohort Summary CSV` to save the grouped cohort summary
 - you can then click `Export Batch Stats CSV` to write one grouped table across all loaded samples
 
-## Step 13. Use Undo and Redo
+## Step 14. Use Undo and Redo
 
 Click `Undo`.
 
@@ -228,7 +239,7 @@ Expected result:
 
 Note that undo and redo currently apply to gate commands only. Transform and plot-view actions remain explicit session state, but are not yet part of the undo stack.
 
-## Step 14. Reset the Session
+## Step 15. Reset the Session
 
 Click `Reset Session`.
 
@@ -240,7 +251,7 @@ Expected result:
 
 This gives you a clean slate without restarting the application.
 
-## Step 15. Compare Against the CLI
+## Step 16. Compare Against the CLI
 
 If you want to see the same replay philosophy outside the desktop, run:
 
@@ -254,7 +265,7 @@ That command prints:
 - the execution hash
 - matched-event counts for the replayed populations
 
-## Step 16. Save The Session
+## Step 17. Save The Session
 
 Click `Save Workspace As` if you want to persist the current desktop session.
 

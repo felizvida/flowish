@@ -35,7 +35,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Deterministic gating and replay in a shared Rust core
 - FCS parsing crate for ingestion and metadata inspection
 - Authentic public FCS compatibility gate with `39/39` pinned files passing under `--require-all-pass`
-- Qt/QML desktop with live rectangle, polygon, quadrant, and histogram range-gate authoring
+- Qt/QML desktop with live rectangle, polygon, quadrant, and histogram range-gate authoring plus append-only exact gate refinement
 - Desktop FCS import and multi-sample switching in one local session
 - Workspace save/load from source paths plus portable `.parallax` bundles that copy FCS sources into the workspace directory
 - Parsed FCS compensation toggle, manual spillover override with QC, plus per-channel linear, signed-log10, asinh, biexponential, and logicle transform presets

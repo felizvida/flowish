@@ -87,6 +87,37 @@ ApplicationWindow {
                     Number(maxText))
     }
 
+    function selectedPopulationObject() {
+        for (let i = 0; i < desktopController.populations.length; ++i) {
+            const population = desktopController.populations[i]
+            if (population.key === desktopController.selectedPopulationKey)
+                return population
+        }
+        return ({})
+    }
+
+    function selectedGateGeometry() {
+        return window.selectedPopulationObject().gate_geometry || ({})
+    }
+
+    function selectedGateNumber(fieldName) {
+        const numeric = Number(window.selectedGateGeometry()[fieldName])
+        return isFinite(numeric) ? numeric.toFixed(2) : ""
+    }
+
+    function selectedGateVerticesText() {
+        const vertices = window.selectedGateGeometry().vertices || []
+        let rows = []
+        for (let i = 0; i < vertices.length; ++i) {
+            const vertex = vertices[i] || {}
+            const x = Number(vertex.x)
+            const y = Number(vertex.y)
+            if (isFinite(x) && isFinite(y))
+                rows.push(x.toFixed(2) + "," + y.toFixed(2))
+        }
+        return rows.join("\n")
+    }
+
     function safeFileStem(value) {
         const text = String(value || "parallax-figure").trim().replace(/[^A-Za-z0-9._-]+/g, "_")
         return text.length > 0 ? text : "parallax-figure"
@@ -573,6 +604,161 @@ ApplicationWindow {
                                             font.pixelSize: 12
                                             elide: Text.ElideLeft
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 10
+
+                            property var selectedGate: window.selectedGateGeometry()
+
+                            Text {
+                                text: "Gate Refinement"
+                                color: "#2e2216"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: selectedGate.kind
+                                      ? "Append a replayable edit for " + desktopController.selectedPopulationKey
+                                      : "Select a rectangle, range, or polygon population to edit exact gate geometry."
+                                color: "#6d5941"
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+
+                            GridLayout {
+                                width: parent.width
+                                columns: 2
+                                columnSpacing: 8
+                                rowSpacing: 8
+                                visible: selectedGate.kind === "rectangle"
+
+                                Text {
+                                    text: "x min"
+                                    color: "#6d5941"
+                                    font.pixelSize: 13
+                                }
+
+                                TextField {
+                                    id: refineRectXMinField
+                                    Layout.fillWidth: true
+                                    text: window.selectedGateNumber("x_min")
+                                    selectByMouse: true
+                                }
+
+                                Text {
+                                    text: "x max"
+                                    color: "#6d5941"
+                                    font.pixelSize: 13
+                                }
+
+                                TextField {
+                                    id: refineRectXMaxField
+                                    Layout.fillWidth: true
+                                    text: window.selectedGateNumber("x_max")
+                                    selectByMouse: true
+                                }
+
+                                Text {
+                                    text: "y min"
+                                    color: "#6d5941"
+                                    font.pixelSize: 13
+                                }
+
+                                TextField {
+                                    id: refineRectYMinField
+                                    Layout.fillWidth: true
+                                    text: window.selectedGateNumber("y_min")
+                                    selectByMouse: true
+                                }
+
+                                Text {
+                                    text: "y max"
+                                    color: "#6d5941"
+                                    font.pixelSize: 13
+                                }
+
+                                TextField {
+                                    id: refineRectYMaxField
+                                    Layout.fillWidth: true
+                                    text: window.selectedGateNumber("y_max")
+                                    selectByMouse: true
+                                }
+                            }
+
+                            GridLayout {
+                                width: parent.width
+                                columns: 2
+                                columnSpacing: 8
+                                rowSpacing: 8
+                                visible: selectedGate.kind === "range"
+
+                                Text {
+                                    text: "min"
+                                    color: "#6d5941"
+                                    font.pixelSize: 13
+                                }
+
+                                TextField {
+                                    id: refineRangeMinField
+                                    Layout.fillWidth: true
+                                    text: window.selectedGateNumber("min")
+                                    selectByMouse: true
+                                }
+
+                                Text {
+                                    text: "max"
+                                    color: "#6d5941"
+                                    font.pixelSize: 13
+                                }
+
+                                TextField {
+                                    id: refineRangeMaxField
+                                    Layout.fillWidth: true
+                                    text: window.selectedGateNumber("max")
+                                    selectByMouse: true
+                                }
+                            }
+
+                            TextArea {
+                                id: refinePolygonVerticesField
+                                width: parent.width
+                                height: 96
+                                visible: selectedGate.kind === "polygon"
+                                text: window.selectedGateVerticesText()
+                                selectByMouse: true
+                                wrapMode: TextEdit.NoWrap
+                                placeholderText: "One x,y vertex per line"
+                            }
+
+                            Button {
+                                text: "Append Gate Edit"
+                                enabled: selectedGate.kind === "rectangle"
+                                         || selectedGate.kind === "range"
+                                         || selectedGate.kind === "polygon"
+                                onClicked: {
+                                    if (selectedGate.kind === "rectangle") {
+                                        desktopController.updateRectangleGate(
+                                                    desktopController.selectedPopulationKey,
+                                                    Number(refineRectXMinField.text),
+                                                    Number(refineRectXMaxField.text),
+                                                    Number(refineRectYMinField.text),
+                                                    Number(refineRectYMaxField.text))
+                                    } else if (selectedGate.kind === "range") {
+                                        desktopController.updateRangeGate(
+                                                    desktopController.selectedPopulationKey,
+                                                    Number(refineRangeMinField.text),
+                                                    Number(refineRangeMaxField.text))
+                                    } else if (selectedGate.kind === "polygon") {
+                                        desktopController.updatePolygonGateFromText(
+                                                    desktopController.selectedPopulationKey,
+                                                    refinePolygonVerticesField.text)
                                     }
                                 }
                             }

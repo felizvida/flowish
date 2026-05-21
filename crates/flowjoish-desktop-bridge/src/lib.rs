@@ -1145,7 +1145,10 @@ impl DesktopSession {
             ),
             ("commands", commands_json(command_log)),
             ("analysis_actions", analysis_actions_json(analysis_log)),
-            ("populations", populations_json(sample, &state)),
+            (
+                "populations",
+                populations_json(sample, &state, command_log)?,
+            ),
             (
                 "population_stats",
                 population_stats_json(&processed_sample, &state)?,
@@ -5543,12 +5546,19 @@ fn parse_hex_u64(value: &str, field: &str) -> Result<u64, String> {
     u64::from_str_radix(value, 16).map_err(|_| format!("invalid field '{field}'"))
 }
 
-fn populations_json(sample: &SampleFrame, state: &WorkspaceState) -> JsonValue {
+fn populations_json(
+    sample: &SampleFrame,
+    state: &WorkspaceState,
+    command_log: &CommandLog,
+) -> Result<JsonValue, String> {
+    let gate_geometries = effective_gate_geometry_by_population(command_log)?;
     let mut values = Vec::with_capacity(state.populations.len() + 1);
     values.push(JsonValue::object([
         ("key", JsonValue::String("__all__".to_string())),
         ("population_id", JsonValue::String("All Events".to_string())),
         ("parent_population", JsonValue::Null),
+        ("gate_kind", JsonValue::Null),
+        ("gate_geometry", JsonValue::Null),
         (
             "matched_events",
             JsonValue::Number(sample.event_count() as f64),
@@ -5571,6 +5581,21 @@ fn populations_json(sample: &SampleFrame, state: &WorkspaceState) -> JsonValue {
                 },
             ),
             (
+                "gate_kind",
+                gate_geometries
+                    .get(&population.population_id)
+                    .and_then(|geometry| geometry.get("kind"))
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
+            ),
+            (
+                "gate_geometry",
+                gate_geometries
+                    .get(&population.population_id)
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
+            ),
+            (
                 "matched_events",
                 JsonValue::Number(population.matched_events as f64),
             ),
@@ -5581,7 +5606,73 @@ fn populations_json(sample: &SampleFrame, state: &WorkspaceState) -> JsonValue {
         ])
     }));
 
-    JsonValue::Array(values)
+    Ok(JsonValue::Array(values))
+}
+
+fn effective_gate_geometry_by_population(
+    command_log: &CommandLog,
+) -> Result<BTreeMap<String, JsonValue>, String> {
+    let mut values = BTreeMap::new();
+    for effective in command_log
+        .effective_commands()
+        .map_err(|error| error.to_string())?
+    {
+        let population_id = effective.command.population_id().to_string();
+        values.insert(population_id, gate_geometry_json(&effective.command));
+    }
+    Ok(values)
+}
+
+fn gate_geometry_json(command: &Command) -> JsonValue {
+    match command {
+        Command::RectangleGate {
+            x_channel,
+            y_channel,
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+            ..
+        } => JsonValue::object([
+            ("kind", JsonValue::String("rectangle".to_string())),
+            ("x_channel", JsonValue::String(x_channel.clone())),
+            ("y_channel", JsonValue::String(y_channel.clone())),
+            ("x_min", JsonValue::Number(*x_min)),
+            ("x_max", JsonValue::Number(*x_max)),
+            ("y_min", JsonValue::Number(*y_min)),
+            ("y_max", JsonValue::Number(*y_max)),
+        ]),
+        Command::RangeGate {
+            channel, min, max, ..
+        } => JsonValue::object([
+            ("kind", JsonValue::String("range".to_string())),
+            ("channel", JsonValue::String(channel.clone())),
+            ("min", JsonValue::Number(*min)),
+            ("max", JsonValue::Number(*max)),
+        ]),
+        Command::PolygonGate {
+            x_channel,
+            y_channel,
+            vertices,
+            ..
+        } => JsonValue::object([
+            ("kind", JsonValue::String("polygon".to_string())),
+            ("x_channel", JsonValue::String(x_channel.clone())),
+            ("y_channel", JsonValue::String(y_channel.clone())),
+            (
+                "vertices",
+                JsonValue::Array(
+                    vertices
+                        .iter()
+                        .map(|vertex| point_json(vertex.x, vertex.y))
+                        .collect(),
+                ),
+            ),
+        ]),
+        Command::UpdateRectangleGate { .. }
+        | Command::UpdateRangeGate { .. }
+        | Command::UpdatePolygonGate { .. } => JsonValue::Null,
+    }
 }
 
 fn population_stats_json(
@@ -5764,7 +5855,7 @@ fn scatter_plot_json(
     let y_index = sample
         .channel_index(y_channel)
         .ok_or_else(|| format!("missing channel '{}'", y_channel))?;
-    let gate_overlays = scatter_gate_overlays(command_log, &plot.x_channel, y_channel);
+    let gate_overlays = scatter_gate_overlays(command_log, &plot.x_channel, y_channel)?;
 
     let sampled_indices = sampled_event_indices(sample.event_count(), SCATTER_POINT_LIMIT);
     let point_columns = point_columns_json(sample, x_index, y_index, &sampled_indices);
@@ -5947,11 +6038,12 @@ fn scatter_gate_overlays(
     command_log: &CommandLog,
     x_channel: &str,
     y_channel: &str,
-) -> Vec<JsonValue> {
-    command_log
-        .records()
+) -> Result<Vec<JsonValue>, String> {
+    Ok(command_log
+        .effective_commands()
+        .map_err(|error| error.to_string())?
         .iter()
-        .filter_map(|record| match &record.command {
+        .filter_map(|effective| match &effective.command {
             Command::RectangleGate {
                 population_id,
                 parent_population,
@@ -6010,7 +6102,7 @@ fn scatter_gate_overlays(
             }
             _ => None,
         })
-        .collect()
+        .collect())
 }
 
 fn point_json(x: f64, y: f64) -> JsonValue {
@@ -6068,7 +6160,7 @@ fn histogram_plot_json(
         ("population_bins", JsonValue::Object(population_bins)),
         (
             "range_overlays",
-            JsonValue::Array(histogram_range_overlays(command_log, &plot.x_channel)),
+            JsonValue::Array(histogram_range_overlays(command_log, &plot.x_channel)?),
         ),
         (
             "x_range",
@@ -6087,11 +6179,15 @@ fn histogram_plot_json(
     ]))
 }
 
-fn histogram_range_overlays(command_log: &CommandLog, channel: &str) -> Vec<JsonValue> {
-    command_log
-        .records()
+fn histogram_range_overlays(
+    command_log: &CommandLog,
+    channel: &str,
+) -> Result<Vec<JsonValue>, String> {
+    Ok(command_log
+        .effective_commands()
+        .map_err(|error| error.to_string())?
         .iter()
-        .filter_map(|record| match &record.command {
+        .filter_map(|effective| match &effective.command {
             Command::RangeGate {
                 population_id,
                 parent_population,
@@ -6111,7 +6207,7 @@ fn histogram_range_overlays(command_log: &CommandLog, channel: &str) -> Vec<Json
             ])),
             _ => None,
         })
-        .collect()
+        .collect())
 }
 
 fn auto_plot_range(sample: &SampleFrame, plot: &PlotSpec) -> Result<PlotRangeState, String> {
@@ -6958,6 +7054,108 @@ mod tests {
         assert_eq!(
             overlays[0].get("max").and_then(JsonValue::as_f64),
             Some(9.0)
+        );
+    }
+
+    #[test]
+    fn session_dispatches_gate_updates_and_refreshes_effective_overlays() {
+        let mut session = DesktopSession::new().expect("session");
+        let gate = JsonValue::object([
+            ("kind", JsonValue::String("rectangle_gate".to_string())),
+            ("sample_id", JsonValue::String("desktop-demo".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
+            ("parent_population", JsonValue::Null),
+            ("x_channel", JsonValue::String("FSC-A".to_string())),
+            ("y_channel", JsonValue::String("SSC-A".to_string())),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(35.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(35.0)),
+        ])
+        .stringify_canonical();
+        let before = session.dispatch_json(&gate);
+        let before_matched = before
+            .get("population_stats")
+            .and_then(|value| value.get("lymphocytes"))
+            .and_then(|value| value.get("matched_events"))
+            .and_then(JsonValue::as_u64)
+            .expect("initial matched events");
+
+        let update = JsonValue::object([
+            (
+                "kind",
+                JsonValue::String("update_rectangle_gate".to_string()),
+            ),
+            ("sample_id", JsonValue::String("desktop-demo".to_string())),
+            (
+                "population_id",
+                JsonValue::String("lymphocytes".to_string()),
+            ),
+            ("x_min", JsonValue::Number(0.0)),
+            ("x_max", JsonValue::Number(15.0)),
+            ("y_min", JsonValue::Number(0.0)),
+            ("y_max", JsonValue::Number(15.0)),
+        ])
+        .stringify_canonical();
+        let after = session.dispatch_json(&update);
+        assert_eq!(
+            after.get("command_count").and_then(JsonValue::as_u64),
+            Some(2)
+        );
+        let after_matched = after
+            .get("population_stats")
+            .and_then(|value| value.get("lymphocytes"))
+            .and_then(|value| value.get("matched_events"))
+            .and_then(JsonValue::as_u64)
+            .expect("updated matched events");
+        assert!(after_matched < before_matched);
+
+        let population = after
+            .get("populations")
+            .and_then(JsonValue::as_array)
+            .and_then(|values| {
+                values.iter().find(|value| {
+                    value.get("key").and_then(JsonValue::as_str) == Some("lymphocytes")
+                })
+            })
+            .expect("updated population");
+        assert_eq!(
+            population.get("gate_kind").and_then(JsonValue::as_str),
+            Some("rectangle")
+        );
+        assert_eq!(
+            population
+                .get("gate_geometry")
+                .and_then(|value| value.get("x_max"))
+                .and_then(JsonValue::as_f64),
+            Some(15.0)
+        );
+
+        let scatter = after
+            .get("plots")
+            .and_then(JsonValue::as_array)
+            .and_then(|plots| {
+                plots.iter().find(|plot| {
+                    plot.get("id").and_then(JsonValue::as_str) == Some("plot_fsc_a_ssc_a")
+                })
+            })
+            .expect("scatter plot");
+        let overlays = scatter
+            .get("gate_overlays")
+            .and_then(JsonValue::as_array)
+            .expect("gate overlays");
+        assert_eq!(overlays.len(), 1);
+        assert!(
+            overlays[0]
+                .get("vertices")
+                .and_then(JsonValue::as_array)
+                .expect("vertices")
+                .iter()
+                .any(|vertex| vertex.get("x").and_then(JsonValue::as_f64) == Some(15.0)),
+            "overlay should use the edited rectangle bounds"
         );
     }
 

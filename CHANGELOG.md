@@ -7,6 +7,7 @@
 - Added replayable plot panning for scatter and histogram panels through the Qt/QML `Pan Tool`
 - Stored pan gestures in the Rust view-action log so workspaces can replay manual navigation context
 - Added replayable manual x/y plot range entry through per-plot `View` fields and `Set View`
+- Added append-only gate refinement commands for rectangle, range, and polygon populations
 
 ## v0.1.2 - 2026-03-20
 

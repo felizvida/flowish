@@ -27,6 +27,7 @@ The left rail contains:
 - Derived metric configuration and derived-metric export
 - Command presets for compatible samples
 - Tool selection for rectangle or polygon gating
+- Gate refinement for selected rectangle, range, and polygon populations
 - Undo, redo, and reset controls
 - The population list
 - The selected population stats panel
@@ -44,6 +45,16 @@ The main area contains multiple linked plot panels. In the bundled demo sample, 
 For imported samples, the exact plot set depends on the available channels. Parallax prefers two scatter projections when possible, then adds a histogram for a meaningful non-structural channel.
 
 The selected population controls which events are highlighted across every plot.
+
+## Gate Refinement
+
+After selecting a gated population, use `Gate Refinement` in the left rail to append an exact geometry edit.
+
+- Rectangle gates expose x/y min/max fields.
+- Histogram range gates expose min/max threshold fields.
+- Polygon gates expose one `x,y` vertex per line.
+- `Append Gate Edit` records an explicit update command instead of mutating history silently.
+- Replayed child populations recompute from the edited parent gate, so downstream stats and overlays stay consistent.
 
 ## Samples And Session State
 

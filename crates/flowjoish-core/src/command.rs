@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
@@ -34,6 +35,25 @@ pub enum Command {
         y_channel: String,
         vertices: Vec<Point2D>,
     },
+    UpdateRectangleGate {
+        sample_id: String,
+        population_id: String,
+        x_min: f64,
+        x_max: f64,
+        y_min: f64,
+        y_max: f64,
+    },
+    UpdateRangeGate {
+        sample_id: String,
+        population_id: String,
+        min: f64,
+        max: f64,
+    },
+    UpdatePolygonGate {
+        sample_id: String,
+        population_id: String,
+        vertices: Vec<Point2D>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -49,6 +69,12 @@ pub struct CommandLog {
     records: Vec<CommandRecord>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffectiveCommand {
+    pub sequence: u64,
+    pub command: Command,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CommandError {
     Json(JsonError),
@@ -56,6 +82,7 @@ pub enum CommandError {
     InvalidField(&'static str),
     UnknownKind(String),
     InvalidGeometry(String),
+    InvalidEdit(String),
     HashMismatch {
         sequence: u64,
         expected: u64,
@@ -71,6 +98,7 @@ impl Display for CommandError {
             Self::InvalidField(name) => write!(f, "invalid field '{name}'"),
             Self::UnknownKind(kind) => write!(f, "unknown command kind '{kind}'"),
             Self::InvalidGeometry(message) => f.write_str(message),
+            Self::InvalidEdit(message) => f.write_str(message),
             Self::HashMismatch {
                 sequence,
                 expected,
@@ -98,6 +126,9 @@ impl Command {
             Self::RectangleGate { .. } => "rectangle_gate",
             Self::RangeGate { .. } => "range_gate",
             Self::PolygonGate { .. } => "polygon_gate",
+            Self::UpdateRectangleGate { .. } => "update_rectangle_gate",
+            Self::UpdateRangeGate { .. } => "update_range_gate",
+            Self::UpdatePolygonGate { .. } => "update_polygon_gate",
         }
     }
 
@@ -105,7 +136,10 @@ impl Command {
         match self {
             Self::RectangleGate { sample_id, .. }
             | Self::RangeGate { sample_id, .. }
-            | Self::PolygonGate { sample_id, .. } => sample_id,
+            | Self::PolygonGate { sample_id, .. }
+            | Self::UpdateRectangleGate { sample_id, .. }
+            | Self::UpdateRangeGate { sample_id, .. }
+            | Self::UpdatePolygonGate { sample_id, .. } => sample_id,
         }
     }
 
@@ -163,6 +197,41 @@ impl Command {
                 y_channel: y_channel.clone(),
                 vertices: vertices.clone(),
             },
+            Self::UpdateRectangleGate {
+                population_id,
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+                ..
+            } => Self::UpdateRectangleGate {
+                sample_id,
+                population_id: population_id.clone(),
+                x_min: *x_min,
+                x_max: *x_max,
+                y_min: *y_min,
+                y_max: *y_max,
+            },
+            Self::UpdateRangeGate {
+                population_id,
+                min,
+                max,
+                ..
+            } => Self::UpdateRangeGate {
+                sample_id,
+                population_id: population_id.clone(),
+                min: *min,
+                max: *max,
+            },
+            Self::UpdatePolygonGate {
+                population_id,
+                vertices,
+                ..
+            } => Self::UpdatePolygonGate {
+                sample_id,
+                population_id: population_id.clone(),
+                vertices: vertices.clone(),
+            },
         }
     }
 
@@ -170,7 +239,10 @@ impl Command {
         match self {
             Self::RectangleGate { population_id, .. }
             | Self::RangeGate { population_id, .. }
-            | Self::PolygonGate { population_id, .. } => population_id,
+            | Self::PolygonGate { population_id, .. }
+            | Self::UpdateRectangleGate { population_id, .. }
+            | Self::UpdateRangeGate { population_id, .. }
+            | Self::UpdatePolygonGate { population_id, .. } => population_id,
         }
     }
 
@@ -185,6 +257,9 @@ impl Command {
             | Self::PolygonGate {
                 parent_population, ..
             } => parent_population.as_deref(),
+            Self::UpdateRectangleGate { .. }
+            | Self::UpdateRangeGate { .. }
+            | Self::UpdatePolygonGate { .. } => None,
         }
     }
 
@@ -244,6 +319,12 @@ impl Command {
                         .map_err(|error| CommandError::InvalidGeometry(error.to_string()))?,
                 ),
             }),
+            Self::UpdateRectangleGate { .. }
+            | Self::UpdateRangeGate { .. }
+            | Self::UpdatePolygonGate { .. } => Err(CommandError::InvalidEdit(
+                "gate update commands cannot be converted to standalone gate definitions"
+                    .to_string(),
+            )),
         }
     }
 
@@ -331,6 +412,57 @@ impl Command {
                     ),
                 ),
             ]),
+            Self::UpdateRectangleGate {
+                sample_id,
+                population_id,
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+            } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind().to_string())),
+                ("sample_id", JsonValue::String(sample_id.clone())),
+                ("population_id", JsonValue::String(population_id.clone())),
+                ("x_min", JsonValue::Number(*x_min)),
+                ("x_max", JsonValue::Number(*x_max)),
+                ("y_min", JsonValue::Number(*y_min)),
+                ("y_max", JsonValue::Number(*y_max)),
+            ]),
+            Self::UpdateRangeGate {
+                sample_id,
+                population_id,
+                min,
+                max,
+            } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind().to_string())),
+                ("sample_id", JsonValue::String(sample_id.clone())),
+                ("population_id", JsonValue::String(population_id.clone())),
+                ("min", JsonValue::Number(*min)),
+                ("max", JsonValue::Number(*max)),
+            ]),
+            Self::UpdatePolygonGate {
+                sample_id,
+                population_id,
+                vertices,
+            } => JsonValue::object([
+                ("kind", JsonValue::String(self.kind().to_string())),
+                ("sample_id", JsonValue::String(sample_id.clone())),
+                ("population_id", JsonValue::String(population_id.clone())),
+                (
+                    "vertices",
+                    JsonValue::Array(
+                        vertices
+                            .iter()
+                            .map(|vertex| {
+                                JsonValue::object([
+                                    ("x", JsonValue::Number(vertex.x)),
+                                    ("y", JsonValue::Number(vertex.y)),
+                                ])
+                            })
+                            .collect(),
+                    ),
+                ),
+            ]),
         }
     }
 
@@ -362,6 +494,25 @@ impl Command {
                 parent_population: optional_string(value, "parent_population")?,
                 x_channel: required_string(value, "x_channel")?.to_string(),
                 y_channel: required_string(value, "y_channel")?.to_string(),
+                vertices: required_vertices(value, "vertices")?,
+            }),
+            "update_rectangle_gate" => Ok(Self::UpdateRectangleGate {
+                sample_id: required_string(value, "sample_id")?.to_string(),
+                population_id: required_string(value, "population_id")?.to_string(),
+                x_min: required_number(value, "x_min")?,
+                x_max: required_number(value, "x_max")?,
+                y_min: required_number(value, "y_min")?,
+                y_max: required_number(value, "y_max")?,
+            }),
+            "update_range_gate" => Ok(Self::UpdateRangeGate {
+                sample_id: required_string(value, "sample_id")?.to_string(),
+                population_id: required_string(value, "population_id")?.to_string(),
+                min: required_number(value, "min")?,
+                max: required_number(value, "max")?,
+            }),
+            "update_polygon_gate" => Ok(Self::UpdatePolygonGate {
+                sample_id: required_string(value, "sample_id")?.to_string(),
+                population_id: required_string(value, "population_id")?.to_string(),
                 vertices: required_vertices(value, "vertices")?,
             }),
             other => Err(CommandError::UnknownKind(other.to_string())),
@@ -397,6 +548,43 @@ impl CommandLog {
             command,
         });
         self.records.last().expect("record was just pushed")
+    }
+
+    pub fn effective_commands(&self) -> Result<Vec<EffectiveCommand>, CommandError> {
+        let mut commands = Vec::<EffectiveCommand>::new();
+        let mut indices = BTreeMap::<String, usize>::new();
+
+        for record in &self.records {
+            match &record.command {
+                Command::RectangleGate { population_id, .. }
+                | Command::RangeGate { population_id, .. }
+                | Command::PolygonGate { population_id, .. } => {
+                    if indices.contains_key(population_id) {
+                        return Err(CommandError::InvalidEdit(format!(
+                            "population '{population_id}' already exists"
+                        )));
+                    }
+                    indices.insert(population_id.clone(), commands.len());
+                    commands.push(EffectiveCommand {
+                        sequence: record.sequence,
+                        command: record.command.clone(),
+                    });
+                }
+                Command::UpdateRectangleGate { population_id, .. }
+                | Command::UpdateRangeGate { population_id, .. }
+                | Command::UpdatePolygonGate { population_id, .. } => {
+                    let index = indices.get(population_id).copied().ok_or_else(|| {
+                        CommandError::InvalidEdit(format!(
+                            "cannot update unknown population '{population_id}'"
+                        ))
+                    })?;
+                    commands[index].command =
+                        apply_gate_update(&commands[index].command, &record.command)?;
+                }
+            }
+        }
+
+        Ok(commands)
     }
 
     pub fn pop(&mut self) -> Option<CommandRecord> {
@@ -541,6 +729,87 @@ fn required_vertices(value: &JsonValue, field: &'static str) -> Result<Vec<Point
         .collect()
 }
 
+fn apply_gate_update(existing: &Command, update: &Command) -> Result<Command, CommandError> {
+    if existing.sample_id() != update.sample_id() {
+        return Err(CommandError::InvalidEdit(format!(
+            "gate update for population '{}' belongs to sample '{}' instead of '{}'",
+            existing.population_id(),
+            update.sample_id(),
+            existing.sample_id()
+        )));
+    }
+
+    match (existing, update) {
+        (
+            Command::RectangleGate {
+                sample_id,
+                population_id,
+                parent_population,
+                x_channel,
+                y_channel,
+                ..
+            },
+            Command::UpdateRectangleGate {
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+                ..
+            },
+        ) => Ok(Command::RectangleGate {
+            sample_id: sample_id.clone(),
+            population_id: population_id.clone(),
+            parent_population: parent_population.clone(),
+            x_channel: x_channel.clone(),
+            y_channel: y_channel.clone(),
+            x_min: *x_min,
+            x_max: *x_max,
+            y_min: *y_min,
+            y_max: *y_max,
+        }),
+        (
+            Command::RangeGate {
+                sample_id,
+                population_id,
+                parent_population,
+                channel,
+                ..
+            },
+            Command::UpdateRangeGate { min, max, .. },
+        ) => Ok(Command::RangeGate {
+            sample_id: sample_id.clone(),
+            population_id: population_id.clone(),
+            parent_population: parent_population.clone(),
+            channel: channel.clone(),
+            min: *min,
+            max: *max,
+        }),
+        (
+            Command::PolygonGate {
+                sample_id,
+                population_id,
+                parent_population,
+                x_channel,
+                y_channel,
+                ..
+            },
+            Command::UpdatePolygonGate { vertices, .. },
+        ) => Ok(Command::PolygonGate {
+            sample_id: sample_id.clone(),
+            population_id: population_id.clone(),
+            parent_population: parent_population.clone(),
+            x_channel: x_channel.clone(),
+            y_channel: y_channel.clone(),
+            vertices: vertices.clone(),
+        }),
+        _ => Err(CommandError::InvalidEdit(format!(
+            "gate update kind '{}' does not match existing population '{}'",
+            update.kind(),
+            existing.population_id()
+        ))),
+    }
+}
+
 fn parse_hex_hash(value: &str, field: &'static str) -> Result<u64, CommandError> {
     u64::from_str_radix(value, 16).map_err(|_| CommandError::InvalidField(field))
 }
@@ -584,11 +853,39 @@ mod tests {
                 Point2D { x: 10.0, y: 10.0 },
             ],
         });
+        log.append(Command::UpdateRangeGate {
+            sample_id: "sample-a".to_string(),
+            population_id: "cd3_high".to_string(),
+            min: 7.0,
+            max: 90.0,
+        });
+        log.append(Command::UpdatePolygonGate {
+            sample_id: "sample-a".to_string(),
+            population_id: "cd3".to_string(),
+            vertices: vec![
+                Point2D { x: 1.0, y: 1.0 },
+                Point2D { x: 9.0, y: 1.0 },
+                Point2D { x: 9.0, y: 9.0 },
+            ],
+        });
 
         let json = log.to_json();
         let restored = CommandLog::from_json(&json).expect("log is valid json");
         assert_eq!(restored, log);
         assert_eq!(restored.execution_hash(), log.execution_hash());
+
+        let effective = restored
+            .effective_commands()
+            .expect("updates fold into effective commands");
+        assert_eq!(effective.len(), 3);
+        assert!(matches!(
+            effective[1].command,
+            Command::RangeGate {
+                min: 7.0,
+                max: 90.0,
+                ..
+            }
+        ));
     }
 
     #[test]
