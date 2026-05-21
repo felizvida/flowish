@@ -14,6 +14,7 @@
 - Added single-page plot report PDF export that captures the visible plot panels with controls hidden
 - Added provenance footers to PDF figure and plot-report exports with sample, population, command-log hash, execution hash, workspace, and generation time
 - Added FCS parser support for non-byte-aligned packed integer event payloads, including event-byte-padded and global-bit-stream layouts
+- Added FCS parser support for fixed-width ASCII event payloads, including ASCII files that omit `$BYTEORD`
 
 ## v0.1.2 - 2026-03-20
 

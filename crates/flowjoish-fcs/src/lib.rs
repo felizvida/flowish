@@ -108,7 +108,11 @@ pub fn parse(bytes: &[u8]) -> Result<FcsFile, FcsError> {
         .chars()
         .next()
         .ok_or(FcsError::InvalidMetadata("$DATATYPE"))?;
-    let byte_order = parse_byte_order(required_metadata(&metadata, "$BYTEORD")?)?;
+    let byte_order = match metadata.get("$BYTEORD").map(String::as_str) {
+        Some(value) => parse_byte_order(value)?,
+        None if matches!(data_type, 'A' | 'a') => Endianness::Little,
+        None => return Err(FcsError::InvalidMetadata("$BYTEORD")),
+    };
     let mode = required_metadata(&metadata, "$MODE")?;
     if !mode.eq_ignore_ascii_case("L") {
         return Err(FcsError::Unsupported(format!(
@@ -533,6 +537,7 @@ fn decode_events(
         }
         'F' | 'f' => EventLayout::ByteAligned(vec![4; parameter_count]),
         'D' | 'd' => EventLayout::ByteAligned(vec![8; parameter_count]),
+        'A' | 'a' => EventLayout::ByteAligned(channel_byte_widths(channels, "ASCII")?),
         other => {
             return Err(FcsError::Unsupported(format!(
                 "unsupported data type '{other}'"
@@ -562,6 +567,22 @@ fn decode_events(
             byte_order,
         ),
     }
+}
+
+fn channel_byte_widths(channels: &[FcsChannel], label: &str) -> Result<Vec<usize>, FcsError> {
+    channels
+        .iter()
+        .map(|channel| {
+            let bits = channel.bits.ok_or(FcsError::InvalidMetadata("$PnB"))?;
+            if bits == 0 || bits % 8 != 0 {
+                return Err(FcsError::Unsupported(format!(
+                    "unsupported {label} width {} bits",
+                    bits
+                )));
+            }
+            Ok((bits / 8) as usize)
+        })
+        .collect()
 }
 
 enum EventLayout {
@@ -644,6 +665,7 @@ fn decode_byte_aligned_events(
                 'I' | 'i' => read_integer(cell, byte_order) as f64,
                 'F' | 'f' => read_f32(cell, byte_order)? as f64,
                 'D' | 'd' => read_f64(cell, byte_order)?,
+                'A' | 'a' => read_ascii_number(cell)?,
                 _ => unreachable!(),
             };
             row.push(value);
@@ -742,6 +764,19 @@ fn read_packed_bit(bytes: &[u8], bit_index: usize, endianness: Endianness) -> Re
         Endianness::Big => 7 - bit_in_byte,
     };
     Ok((byte >> shift) & 1)
+}
+
+fn read_ascii_number(bytes: &[u8]) -> Result<f64, FcsError> {
+    let text = std::str::from_utf8(bytes).map_err(|error| FcsError::Utf8(error.to_string()))?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err(FcsError::InvalidText(
+            "ASCII event value is empty".to_string(),
+        ));
+    }
+    trimmed
+        .parse::<f64>()
+        .map_err(|_| FcsError::InvalidText(format!("invalid ASCII event value '{trimmed}'")))
 }
 
 fn read_f32(bytes: &[u8], endianness: Endianness) -> Result<f32, FcsError> {
@@ -915,6 +950,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parses_fixed_width_ascii_event_payloads() {
+        let bytes = build_ascii_test_fcs(
+            vec![("FSC-A", 12, 100_000), ("SSC-A", 12, 100_000)],
+            vec![vec![12.5, -3.0], vec![1000.0, 0.0125]],
+            true,
+        );
+
+        let parsed = parse(&bytes).expect("fixed-width ASCII FCS");
+        assert_eq!(parsed.data_type, 'A');
+        assert_eq!(parsed.events, vec![vec![12.5, -3.0], vec![1000.0, 0.0125]]);
+    }
+
+    #[test]
+    fn parses_ascii_payloads_without_byte_order_metadata() {
+        let bytes = build_ascii_test_fcs(
+            vec![("FL1-A", 10, 100_000), ("FL2-A", 10, 100_000)],
+            vec![vec![1.0, 2.5]],
+            false,
+        );
+
+        let parsed = parse(&bytes).expect("ASCII FCS without byte order");
+        assert_eq!(parsed.byte_order, Endianness::Little);
+        assert_eq!(parsed.events, vec![vec![1.0, 2.5]]);
+    }
+
     fn build_test_fcs(
         channels: Vec<&str>,
         rows: Vec<Vec<f64>>,
@@ -948,6 +1009,73 @@ mod tests {
             .flat_map(|row| {
                 row.iter()
                     .flat_map(|value| (*value as f32).to_le_bytes())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        let text_start = 58usize;
+        let mut text = build_text_segment(delimiter, &metadata);
+        let mut data_start = text_start + text.len();
+        let mut data_end = data_start + data_bytes.len().saturating_sub(1);
+
+        metadata.push(("$BEGINDATA".to_string(), data_start.to_string()));
+        metadata.push(("$ENDDATA".to_string(), data_end.to_string()));
+        text = build_text_segment(delimiter, &metadata);
+        data_start = text_start + text.len();
+        data_end = data_start + data_bytes.len().saturating_sub(1);
+
+        let mut header = vec![b' '; 58];
+        header[0..6].copy_from_slice(b"FCS3.1");
+        write_field(&mut header, 10, 18, text_start);
+        write_field(&mut header, 18, 26, text_start + text.len() - 1);
+        write_field(&mut header, 26, 34, data_start);
+        write_field(&mut header, 34, 42, data_end);
+        write_field(&mut header, 42, 50, 0);
+        write_field(&mut header, 50, 58, 0);
+
+        let mut bytes = header;
+        bytes.extend_from_slice(&text);
+        bytes.extend_from_slice(&data_bytes);
+        bytes
+    }
+
+    fn build_ascii_test_fcs(
+        channels: Vec<(&str, usize, u64)>,
+        rows: Vec<Vec<f64>>,
+        include_byte_order: bool,
+    ) -> Vec<u8> {
+        let delimiter = '/';
+        let event_count = rows.len();
+        let parameter_count = channels.len();
+        let mut metadata = vec![
+            ("$TOT".to_string(), event_count.to_string()),
+            ("$PAR".to_string(), parameter_count.to_string()),
+            ("$DATATYPE".to_string(), "A".to_string()),
+            ("$MODE".to_string(), "L".to_string()),
+            ("$NEXTDATA".to_string(), "0".to_string()),
+        ];
+        if include_byte_order {
+            metadata.push(("$BYTEORD".to_string(), "1,2,3,4".to_string()));
+        }
+
+        for (index, (name, width, range)) in channels.iter().enumerate() {
+            let channel_index = index + 1;
+            metadata.push((format!("$P{channel_index}N"), (*name).to_string()));
+            metadata.push((format!("$P{channel_index}B"), (width * 8).to_string()));
+            metadata.push((format!("$P{channel_index}R"), range.to_string()));
+        }
+
+        let data_bytes = rows
+            .iter()
+            .flat_map(|row| {
+                assert_eq!(row.len(), channels.len());
+                row.iter()
+                    .zip(&channels)
+                    .flat_map(|(value, (_, width, _))| {
+                        let text = format!("{value:>width$.4e}");
+                        assert_eq!(text.len(), *width);
+                        text.into_bytes()
+                    })
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
