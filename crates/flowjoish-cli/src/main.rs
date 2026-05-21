@@ -31,7 +31,9 @@ fn run() -> Result<(), String> {
             inspect_fcs(path, true)
         }
         Some("demo-replay") => demo_replay(),
-        _ => Err("usage: flowjoish-cli <inspect-fcs|inspect-fcs-json|demo-replay> [args]".to_string()),
+        _ => Err(
+            "usage: flowjoish-cli <inspect-fcs|inspect-fcs-json|demo-replay> [args]".to_string(),
+        ),
     }
 }
 
@@ -70,22 +72,13 @@ fn inspect_fcs(path: &str, as_json: bool) -> Result<(), String> {
 fn fcs_report_json(path: &str, parsed: &FcsFile) -> JsonValue {
     JsonValue::object([
         ("path", JsonValue::String(path.to_string())),
-        (
-            "version",
-            JsonValue::String(parsed.header.version.clone()),
-        ),
-        (
-            "event_count",
-            JsonValue::Number(parsed.event_count as f64),
-        ),
+        ("version", JsonValue::String(parsed.header.version.clone())),
+        ("event_count", JsonValue::Number(parsed.event_count as f64)),
         (
             "parameter_count",
             JsonValue::Number(parsed.parameter_count as f64),
         ),
-        (
-            "data_type",
-            JsonValue::String(parsed.data_type.to_string()),
-        ),
+        ("data_type", JsonValue::String(parsed.data_type.to_string())),
         (
             "byte_order",
             JsonValue::String(format_endianness(parsed.byte_order).to_string()),
@@ -96,25 +89,19 @@ fn fcs_report_json(path: &str, parsed: &FcsFile) -> JsonValue {
         ),
         (
             "channels",
-            JsonValue::Array(
-                parsed
-                    .channels
-                    .iter()
-                    .map(channel_json)
-                    .collect::<Vec<_>>(),
-            ),
+            JsonValue::Array(parsed.channels.iter().map(channel_json).collect::<Vec<_>>()),
         ),
-        ("compensation", compensation_json(parsed.compensation.as_ref())),
+        (
+            "compensation",
+            compensation_json(parsed.compensation.as_ref()),
+        ),
     ])
 }
 
 fn channel_json(channel: &FcsChannel) -> JsonValue {
     JsonValue::object([
         ("index", JsonValue::Number(channel.index as f64)),
-        (
-            "short_name",
-            JsonValue::String(channel.short_name.clone()),
-        ),
+        ("short_name", JsonValue::String(channel.short_name.clone())),
         (
             "long_name",
             match &channel.long_name {

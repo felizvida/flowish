@@ -61,9 +61,7 @@ fn inspect_fcs_json_emits_structured_output() {
         .and_then(JsonValue::as_object)
         .expect("compensation object");
     assert_eq!(
-        compensation
-            .get("source_key")
-            .and_then(JsonValue::as_str),
+        compensation.get("source_key").and_then(JsonValue::as_str),
         Some("SPILLOVER")
     );
     assert_eq!(
