@@ -10,6 +10,7 @@
 - Added append-only gate refinement commands for rectangle, range, and polygon populations
 - Added an explicit `Edit Tool` with draggable rectangle handles and histogram range handles that append replayable gate-update commands
 - Added draggable polygon vertex and body editing through the same replayable `update_polygon_gate` command path
+- Added per-plot PDF figure export using the same high-resolution control-hidden capture path as PNG export
 
 ## v0.1.2 - 2026-03-20
 

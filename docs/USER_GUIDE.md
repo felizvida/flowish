@@ -137,18 +137,19 @@ How they behave:
 
 ## Figure Export
 
-Each plot panel includes `Export PNG` for high-resolution figure capture.
+Each plot panel includes `Export PNG` and `Export PDF` for high-resolution figure capture.
 
 How it behaves:
 
 - Parallax opens a save dialog with a plot-derived file name
 - the export captures the plot card at roughly 3x on-screen resolution
 - interaction controls are hidden during the capture so the image includes the title, axis label, highlighted count, plot, and overlays without UI buttons
-- the output is a PNG suitable for manuscript drafts, slides, and lab notebooks
+- PNG export writes an image suitable for manuscript drafts, slides, and lab notebooks
+- PDF export wraps the same high-resolution capture onto a page-oriented PDF for sharing and review
 
 Current limit:
 
-- PDF, SVG, multi-panel layout export, and journal-specific styling presets are still future work
+- SVG/vector export, multi-panel layout export, and journal-specific styling presets are still future work
 
 ## Histogram View
 
@@ -357,7 +358,7 @@ Current implication:
 - Source-path workspace save/load is useful for active projects that stay on the same machine
 - Portable workspace bundles copy imported FCS files and validate manifest integrity so the analysis can move without the original acquisition folder
 - There is still no derived-data cache, compressed package format, recovery snapshot, or signed package manifest
-- custom free-form formulas, richer grouped-comparison views, density views, PDF/SVG figure export, and richer transform tuning are still ahead
+- custom free-form formulas, richer grouped-comparison views, density views, SVG/vector figure export, and richer transform tuning are still ahead
 
 ## CLI and Backend
 
@@ -384,7 +385,7 @@ The backend exists to preserve local/cloud parity pressure early, not to replace
 Parallax does not yet include:
 
 - Density plots
-- PDF/SVG figure export and report export
+- SVG/vector figure export and report export
 - Cloud sync
 
 Those features are planned, but the current product center is still fast, explicit, reproducible analysis interactions.

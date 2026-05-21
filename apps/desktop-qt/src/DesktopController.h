@@ -95,6 +95,12 @@ public:
     Q_INVOKABLE void clearCompensationOverride();
     Q_INVOKABLE void setChannelTransform(const QString &channel, const QString &kind);
     Q_INVOKABLE QString chooseFigureExportPath(const QString &suggestedName);
+    Q_INVOKABLE QString chooseFigurePdfExportPath(const QString &suggestedName);
+    Q_INVOKABLE QString temporaryFigureCapturePath(const QString &suggestedName);
+    Q_INVOKABLE bool exportFigurePdfFromImage(
+        const QString &imagePath,
+        const QString &pdfPath,
+        const QString &title);
     Q_INVOKABLE void reportFigureExportFailure(const QString &message);
     Q_INVOKABLE void resetPlotView(const QString &plotId);
     Q_INVOKABLE void focusPlotOnSelectedPopulation(const QString &plotId);

@@ -2,12 +2,22 @@
 #include "DesktopPayloadPolicy.h"
 
 #include <QFileDialog>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QMarginsF>
+#include <QPageLayout>
+#include <QPageSize>
+#include <QPainter>
+#include <QPrinter>
 #include <QSet>
 #include <QTimer>
+#include <QUuid>
 #include <QtGlobal>
 #include <QStringList>
 #include <algorithm>
@@ -67,6 +77,24 @@ QString takeRustString(char *raw) {
 
 int pointColumnCount(const QVariantMap &columns) {
     return columns.value(QStringLiteral("event_indices")).toList().size();
+}
+
+QString safeFileStem(const QString &value) {
+    QString stem;
+    for (const QChar character : value.trimmed()) {
+        if (character.isLetterOrNumber() || character == '_' || character == '-' || character == '.') {
+            stem.append(character);
+        } else if (!stem.endsWith('_')) {
+            stem.append('_');
+        }
+    }
+    while (stem.startsWith('.')) {
+        stem.remove(0, 1);
+    }
+    while (stem.endsWith('.') || stem.endsWith('_')) {
+        stem.chop(1);
+    }
+    return stem.isEmpty() ? QStringLiteral("parallax-figure") : stem;
 }
 
 QVariantMap pointColumnsFromPointMaps(const QVariantList &points) {
@@ -818,6 +846,80 @@ QString DesktopController::chooseFigureExportPath(const QString &suggestedName) 
         tr("Export Publication Figure"),
         candidate,
         tr("PNG Images (*.png);;All Files (*)"));
+}
+
+QString DesktopController::chooseFigurePdfExportPath(const QString &suggestedName) {
+    QString candidate = suggestedName.trimmed();
+    if (candidate.isEmpty()) {
+        candidate = QStringLiteral("parallax-figure.pdf");
+    }
+    if (!candidate.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)) {
+        candidate.append(QStringLiteral(".pdf"));
+    }
+
+    return QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Export Publication Figure PDF"),
+        candidate,
+        tr("PDF Documents (*.pdf);;All Files (*)"));
+}
+
+QString DesktopController::temporaryFigureCapturePath(const QString &suggestedName) {
+    const QString baseName = QFileInfo(suggestedName).completeBaseName();
+    const QString uniqueId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    return QDir::temp().filePath(
+        QStringLiteral("parallax-figure-%1-%2.png").arg(safeFileStem(baseName), uniqueId));
+}
+
+bool DesktopController::exportFigurePdfFromImage(
+    const QString &imagePath,
+    const QString &pdfPath,
+    const QString &title) {
+    QImage image(imagePath);
+    const QFileInfo captureInfo(imagePath);
+    if (captureInfo.absoluteDir() == QDir::temp()
+        && captureInfo.fileName().startsWith(QStringLiteral("parallax-figure-"))) {
+        QFile::remove(imagePath);
+    }
+
+    if (image.isNull()) {
+        setLastError(QStringLiteral("Failed to read captured figure image for PDF export"));
+        return false;
+    }
+    if (pdfPath.trimmed().isEmpty()) {
+        setLastError(QStringLiteral("PDF export path cannot be empty"));
+        return false;
+    }
+
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setOutputFormat(QPrinter::PdfFormat);
+    printer.setOutputFileName(pdfPath);
+    const QPageLayout::Orientation orientation =
+        image.width() >= image.height() ? QPageLayout::Landscape : QPageLayout::Portrait;
+    printer.setPageLayout(QPageLayout(
+        QPageSize(QPageSize::Letter),
+        orientation,
+        QMarginsF(24.0, 24.0, 24.0, 24.0),
+        QPageLayout::Point));
+    printer.setDocName(title.trimmed().isEmpty() ? QStringLiteral("Parallax Figure") : title.trimmed());
+
+    QPainter painter(&printer);
+    if (!painter.isActive()) {
+        setLastError(QStringLiteral("Failed to start PDF writer for figure export"));
+        return false;
+    }
+
+    const QRectF pageRect = printer.pageRect(QPrinter::DevicePixel);
+    QSizeF scaledSize(image.size());
+    scaledSize.scale(pageRect.size(), Qt::KeepAspectRatio);
+    const QRectF targetRect(
+        pageRect.left() + ((pageRect.width() - scaledSize.width()) / 2.0),
+        pageRect.top() + ((pageRect.height() - scaledSize.height()) / 2.0),
+        scaledSize.width(),
+        scaledSize.height());
+    painter.drawImage(targetRect, image);
+    painter.end();
+    return true;
 }
 
 void DesktopController::reportFigureExportFailure(const QString &message) {

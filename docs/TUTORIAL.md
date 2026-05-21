@@ -11,7 +11,7 @@ By the end, you will:
 - apply a transform preset
 - review or override compensation when a real sample provides spillover metadata
 - refocus a plot on the active population
-- export a high-resolution plot PNG
+- export a high-resolution plot PNG or PDF
 - inspect population stats and export them
 - configure and export a derived metric
 - inspect the resulting population hierarchy
@@ -174,13 +174,14 @@ Expected result:
 
 ## Step 10. Export A Plot Figure
 
-Click `Export PNG` above one of the plots and choose a destination.
+Click `Export PNG` or `Export PDF` above one of the plots and choose a destination.
 
 Expected result:
 
-- Parallax captures a high-resolution PNG of that plot card
+- Parallax captures a high-resolution figure of that plot card
 - interaction controls are hidden during the capture
 - the export keeps the plot title, axis label, highlighted count, and current gate overlays
+- PDF export places the same capture onto a page-oriented PDF for review or sharing
 
 ## Step 11. Inspect Population Stats
 

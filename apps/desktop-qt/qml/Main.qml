@@ -129,9 +129,13 @@ ApplicationWindow {
         return text.length > 0 ? text : "parallax-figure"
     }
 
-    function exportPlotCard(card, plot) {
-        const suggested = window.safeFileStem(plot.title || plot.id || "parallax-plot") + ".png"
-        const path = desktopController.chooseFigureExportPath(suggested)
+    function exportPlotCard(card, plot, format) {
+        const normalizedFormat = format === "pdf" ? "pdf" : "png"
+        const stem = window.safeFileStem(plot.title || plot.id || "parallax-plot")
+        const suggested = stem + "." + normalizedFormat
+        const path = normalizedFormat === "pdf"
+                     ? desktopController.chooseFigurePdfExportPath(suggested)
+                     : desktopController.chooseFigureExportPath(suggested)
         if (path === "")
             return
 
@@ -140,9 +144,22 @@ ApplicationWindow {
             const targetWidth = Math.max(1800, Math.round(card.width * 3))
             const targetHeight = Math.max(1200, Math.round(card.height * 3))
             card.grabToImage(function (result) {
-                const ok = result.saveToFile(path)
+                let ok = false
+                if (normalizedFormat === "pdf") {
+                    const capturePath = desktopController.temporaryFigureCapturePath(stem + ".png")
+                    if (result.saveToFile(capturePath)) {
+                        ok = desktopController.exportFigurePdfFromImage(
+                                    capturePath,
+                                    path,
+                                    plot.title || plot.id || "Parallax figure")
+                    } else {
+                        desktopController.reportFigureExportFailure("Failed to capture figure for " + path)
+                    }
+                } else {
+                    ok = result.saveToFile(path)
+                }
                 window.figureExportInProgress = false
-                if (!ok)
+                if (!ok && normalizedFormat !== "pdf")
                     desktopController.reportFigureExportFailure("Failed to save figure to " + path)
             }, Qt.size(targetWidth, targetHeight))
         })
@@ -1940,7 +1957,13 @@ ApplicationWindow {
                             Button {
                                 text: "Export PNG"
                                 enabled: !window.figureExportInProgress
-                                onClicked: window.exportPlotCard(plotACard, plotA)
+                                onClicked: window.exportPlotCard(plotACard, plotA, "png")
+                            }
+
+                            Button {
+                                text: "Export PDF"
+                                enabled: !window.figureExportInProgress
+                                onClicked: window.exportPlotCard(plotACard, plotA, "pdf")
                             }
 
                             Item { Layout.fillWidth: true }
@@ -2240,7 +2263,13 @@ ApplicationWindow {
                             Button {
                                 text: "Export PNG"
                                 enabled: !window.figureExportInProgress
-                                onClicked: window.exportPlotCard(plotBCard, plotB)
+                                onClicked: window.exportPlotCard(plotBCard, plotB, "png")
+                            }
+
+                            Button {
+                                text: "Export PDF"
+                                enabled: !window.figureExportInProgress
+                                onClicked: window.exportPlotCard(plotBCard, plotB, "pdf")
                             }
 
                             Item { Layout.fillWidth: true }
@@ -2541,7 +2570,13 @@ ApplicationWindow {
                             Button {
                                 text: "Export PNG"
                                 enabled: !window.figureExportInProgress
-                                onClicked: window.exportPlotCard(plotCCard, plotC)
+                                onClicked: window.exportPlotCard(plotCCard, plotC, "png")
+                            }
+
+                            Button {
+                                text: "Export PDF"
+                                enabled: !window.figureExportInProgress
+                                onClicked: window.exportPlotCard(plotCCard, plotC, "pdf")
                             }
 
                             Item { Layout.fillWidth: true }

@@ -63,7 +63,7 @@ To work with real data:
 - use the channel transform controls to switch between `Linear`, `Signed Log10`, `Asinh (150)`, `Biexponential`, and `Logicle`
 - use `Auto`, `Focus`, `Zoom In`, `Zoom Out`, `Pan Tool`, or `View Fields` plus `Set View` to adjust plot extents through replayable view actions
 - use `Edit Tool` to drag the selected rectangle, polygon, or histogram range gate while keeping edits in the replayable command log
-- use `Export PNG` above a plot to capture a high-resolution figure with interaction controls hidden
+- use `Export PNG` or `Export PDF` above a plot to capture a high-resolution figure with interaction controls hidden
 - look for an additional histogram panel when the sample has a suitable non-structural channel
 - review `Population Stats` in the left rail for counts, frequencies, means, and medians
 - use `Export Stats CSV` to write the active sample's population stats to disk
