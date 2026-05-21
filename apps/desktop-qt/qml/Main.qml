@@ -54,6 +54,12 @@ ApplicationWindow {
     }
 
     function plotHelperText(plot) {
+        if (window.activeGateTool === "pan")
+            return "Drag to pan the current replayable plot view."
+        if (window.activeGateTool === "edit")
+            return (plot.kind || "") === "histogram"
+                    ? "Select a range population, then drag its min/max handles or body to append a replayable edit."
+                    : "Select a rectangle population, then drag its corners, edges, or body to append a replayable edit."
         if ((plot.kind || "") === "histogram")
             return "Drag horizontally, enter exact min/max thresholds, or use Low Gate / High Gate for midpoint shortcuts."
         return window.activeGateTool === "rectangle"
@@ -610,6 +616,7 @@ ApplicationWindow {
                         }
 
                         Column {
+                            id: gateRefinementSection
                             width: parent.width
                             spacing: 10
 
@@ -624,7 +631,7 @@ ApplicationWindow {
 
                             Text {
                                 width: parent.width
-                                text: selectedGate.kind
+                                text: gateRefinementSection.selectedGate.kind
                                       ? "Append a replayable edit for " + desktopController.selectedPopulationKey
                                       : "Select a rectangle, range, or polygon population to edit exact gate geometry."
                                 color: "#6d5941"
@@ -637,7 +644,7 @@ ApplicationWindow {
                                 columns: 2
                                 columnSpacing: 8
                                 rowSpacing: 8
-                                visible: selectedGate.kind === "rectangle"
+                                visible: gateRefinementSection.selectedGate.kind === "rectangle"
 
                                 Text {
                                     text: "x min"
@@ -697,7 +704,7 @@ ApplicationWindow {
                                 columns: 2
                                 columnSpacing: 8
                                 rowSpacing: 8
-                                visible: selectedGate.kind === "range"
+                                visible: gateRefinementSection.selectedGate.kind === "range"
 
                                 Text {
                                     text: "min"
@@ -730,7 +737,7 @@ ApplicationWindow {
                                 id: refinePolygonVerticesField
                                 width: parent.width
                                 height: 96
-                                visible: selectedGate.kind === "polygon"
+                                visible: gateRefinementSection.selectedGate.kind === "polygon"
                                 text: window.selectedGateVerticesText()
                                 selectByMouse: true
                                 wrapMode: TextEdit.NoWrap
@@ -739,23 +746,23 @@ ApplicationWindow {
 
                             Button {
                                 text: "Append Gate Edit"
-                                enabled: selectedGate.kind === "rectangle"
-                                         || selectedGate.kind === "range"
-                                         || selectedGate.kind === "polygon"
+                                enabled: gateRefinementSection.selectedGate.kind === "rectangle"
+                                         || gateRefinementSection.selectedGate.kind === "range"
+                                         || gateRefinementSection.selectedGate.kind === "polygon"
                                 onClicked: {
-                                    if (selectedGate.kind === "rectangle") {
+                                    if (gateRefinementSection.selectedGate.kind === "rectangle") {
                                         desktopController.updateRectangleGate(
                                                     desktopController.selectedPopulationKey,
                                                     Number(refineRectXMinField.text),
                                                     Number(refineRectXMaxField.text),
                                                     Number(refineRectYMinField.text),
                                                     Number(refineRectYMaxField.text))
-                                    } else if (selectedGate.kind === "range") {
+                                    } else if (gateRefinementSection.selectedGate.kind === "range") {
                                         desktopController.updateRangeGate(
                                                     desktopController.selectedPopulationKey,
                                                     Number(refineRangeMinField.text),
                                                     Number(refineRangeMaxField.text))
-                                    } else if (selectedGate.kind === "polygon") {
+                                    } else if (gateRefinementSection.selectedGate.kind === "polygon") {
                                         desktopController.updatePolygonGateFromText(
                                                     desktopController.selectedPopulationKey,
                                                     refinePolygonVerticesField.text)
@@ -1497,7 +1504,8 @@ ApplicationWindow {
                                 onClicked: desktopController.resetSession()
                             }
 
-                            Row {
+                            Flow {
+                                width: parent.width
                                 spacing: 10
 
                                 Button {
@@ -1519,6 +1527,13 @@ ApplicationWindow {
                                     checkable: true
                                     checked: window.activeGateTool === "pan"
                                     onClicked: window.activeGateTool = "pan"
+                                }
+
+                                Button {
+                                    text: "Edit Tool"
+                                    checkable: true
+                                    checked: window.activeGateTool === "edit"
+                                    onClicked: window.activeGateTool = "edit"
                                 }
                             }
 
@@ -1542,6 +1557,8 @@ ApplicationWindow {
                                 width: parent.width
                                 text: window.activeGateTool === "pan"
                                       ? "Drag any plot to pan the current replayable view. Use Auto or Focus to return to computed extents."
+                                      : window.activeGateTool === "edit"
+                                      ? "Select a rectangle or histogram range population, then drag its visible handles or body to append a deterministic gate-update command. Polygon gates can still be refined exactly in Gate Refinement."
                                       : window.activeGateTool === "rectangle"
                                       ? "Drag on scatter plots for rectangle gates, drag across histograms for range gates, enter exact histogram min/max thresholds, use Quadrants for four-way scatter splits, or use Low Gate / High Gate for midpoint histogram gates. Every gate is appended to the Rust command log and becomes a child of the currently selected population."
                                       : "Click to place polygon vertices on either plot, then right-click to commit. Right-click with fewer than three vertices clears the draft."
@@ -2068,6 +2085,14 @@ ApplicationWindow {
                                                 yMin,
                                                 yMax)
                                 }
+                                onRectangleGateEdited: function (populationId, xMin, xMax, yMin, yMax) {
+                                    desktopController.updateRectangleGate(
+                                                populationId,
+                                                xMin,
+                                                xMax,
+                                                yMin,
+                                                yMax)
+                                }
                                 onPolygonGateDrawn: function (vertices) {
                                     desktopController.createPolygonGateForPlot(
                                                 plotA.id || "",
@@ -2097,6 +2122,12 @@ ApplicationWindow {
                                 onRangeGateDrawn: function (min, max) {
                                     desktopController.createHistogramRangeGateForPlot(
                                                 plotA.id || "",
+                                                min,
+                                                max)
+                                }
+                                onRangeGateEdited: function (populationId, min, max) {
+                                    desktopController.updateRangeGate(
+                                                populationId,
                                                 min,
                                                 max)
                                 }
@@ -2349,6 +2380,14 @@ ApplicationWindow {
                                                 yMin,
                                                 yMax)
                                 }
+                                onRectangleGateEdited: function (populationId, xMin, xMax, yMin, yMax) {
+                                    desktopController.updateRectangleGate(
+                                                populationId,
+                                                xMin,
+                                                xMax,
+                                                yMin,
+                                                yMax)
+                                }
                                 onPolygonGateDrawn: function (vertices) {
                                     desktopController.createPolygonGateForPlot(
                                                 plotB.id || "",
@@ -2378,6 +2417,12 @@ ApplicationWindow {
                                 onRangeGateDrawn: function (min, max) {
                                     desktopController.createHistogramRangeGateForPlot(
                                                 plotB.id || "",
+                                                min,
+                                                max)
+                                }
+                                onRangeGateEdited: function (populationId, min, max) {
+                                    desktopController.updateRangeGate(
+                                                populationId,
                                                 min,
                                                 max)
                                 }
@@ -2631,6 +2676,14 @@ ApplicationWindow {
                                                 yMin,
                                                 yMax)
                                 }
+                                onRectangleGateEdited: function (populationId, xMin, xMax, yMin, yMax) {
+                                    desktopController.updateRectangleGate(
+                                                populationId,
+                                                xMin,
+                                                xMax,
+                                                yMin,
+                                                yMax)
+                                }
                                 onPolygonGateDrawn: function (vertices) {
                                     desktopController.createPolygonGateForPlot(
                                                 plotC.id || "",
@@ -2660,6 +2713,12 @@ ApplicationWindow {
                                 onRangeGateDrawn: function (min, max) {
                                     desktopController.createHistogramRangeGateForPlot(
                                                 plotC.id || "",
+                                                min,
+                                                max)
+                                }
+                                onRangeGateEdited: function (populationId, min, max) {
+                                    desktopController.updateRangeGate(
+                                                populationId,
                                                 min,
                                                 max)
                                 }

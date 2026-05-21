@@ -68,6 +68,7 @@ signals:
     void plotRangeChanged();
     void interactionModeChanged();
     void rectangleGateDrawn(double xMin, double xMax, double yMin, double yMax);
+    void rectangleGateEdited(const QString &populationId, double xMin, double xMax, double yMin, double yMax);
     void polygonGateDrawn(const QVariantList &vertices);
     void plotPanned(double xDelta, double yDelta);
 
@@ -79,8 +80,30 @@ protected:
 
 private:
     struct GateOverlay {
+        QString kind;
         QString populationId;
         QVector<QPointF> vertices;
+    };
+
+    enum class RectangleEditHandle {
+        None,
+        Move,
+        Left,
+        Right,
+        Top,
+        Bottom,
+        TopLeft,
+        TopRight,
+        BottomLeft,
+        BottomRight,
+    };
+
+    struct RectangleEditState {
+        bool active = false;
+        QString populationId;
+        QRectF startBounds;
+        QPointF startData;
+        RectangleEditHandle handle = RectangleEditHandle::None;
     };
 
     struct DensityCell {
@@ -100,7 +123,19 @@ private:
     QPointF mapPlotToData(const QPointF &point, const QRectF &bounds, const QRectF &plotArea) const;
     bool isPolygonMode() const;
     bool isPanMode() const;
+    bool isEditMode() const;
     void clearInteractionDraft();
+    const GateOverlay *selectedRectangleOverlay() const;
+    QRectF overlayBoundsData(const GateOverlay &overlay) const;
+    QRectF mapDataBoundsToPlot(const QRectF &dataBounds, const QRectF &bounds, const QRectF &plotArea) const;
+    RectangleEditHandle hitTestRectangleEdit(
+        const GateOverlay &overlay,
+        const QPointF &plotPosition,
+        const QRectF &bounds,
+        const QRectF &plotArea) const;
+    bool beginRectangleEdit(const QPointF &plotPosition);
+    QRectF editedRectangleBounds(const QPointF &plotPosition) const;
+    QVector<QPointF> rectangleVertices(const QRectF &dataBounds) const;
     QSGGeometryNode *buildSeriesNode(
         const QVector<QPointF> &points,
         const QColor &color,
@@ -139,6 +174,7 @@ private:
     bool dragging_ = false;
     QPointF dragStart_;
     QPointF dragCurrent_;
+    RectangleEditState rectangleEdit_;
     QVector<QPointF> polygonVertices_;
     QPointF polygonHover_;
     bool polygonHasHover_ = false;

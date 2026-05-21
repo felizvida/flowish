@@ -13,6 +13,7 @@ namespace {
 
 constexpr qreal kPlotPadding = 18.0;
 constexpr qreal kMinimumDragPixels = 8.0;
+constexpr qreal kEditHandleHitPixels = 10.0;
 
 bool sameRange(double left, double right) {
     return qAbs(left - right) < 1e-9;
@@ -197,6 +198,8 @@ void ScatterPlotItem::setInteractionMode(const QString &mode) {
         nextMode = QStringLiteral("polygon");
     } else if (normalized == "pan") {
         nextMode = QStringLiteral("pan");
+    } else if (normalized == "edit") {
+        nextMode = QStringLiteral("edit");
     }
     if (interactionMode_ == nextMode) {
         return;
@@ -250,6 +253,25 @@ QSGNode *ScatterPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData 
         if (overlay.populationId == selectedPopulationKey_) {
             root->appendChildNode(buildPolylineNode(overlay.vertices, QColor("#ef8354"), bounds, plotArea));
         }
+    }
+    if (const GateOverlay *editableOverlay = selectedRectangleOverlay()) {
+        if (isEditMode() && !rectangleEdit_.active) {
+            QVector<QPointF> handles = rectangleVertices(overlayBoundsData(*editableOverlay));
+            if (!handles.isEmpty()) {
+                handles.removeLast();
+            }
+            root->appendChildNode(buildSeriesNode(handles, QColor("#f4a259"), 13.0, bounds, plotArea));
+        }
+    }
+    if (rectangleEdit_.active) {
+        const QRectF editedBounds = editedRectangleBounds(dragCurrent_);
+        root->appendChildNode(buildSelectionNode(mapDataBoundsToPlot(editedBounds, bounds, plotArea)));
+        root->appendChildNode(buildPolylineNode(rectangleVertices(editedBounds), QColor("#f4a259"), bounds, plotArea));
+        QVector<QPointF> handles = rectangleVertices(editedBounds);
+        if (!handles.isEmpty()) {
+            handles.removeLast();
+        }
+        root->appendChildNode(buildSeriesNode(handles, QColor("#f4a259"), 13.0, bounds, plotArea));
     }
     if (dragging_ && !isPanMode()) {
         const QRectF activeSelection = selectionRect();
@@ -306,6 +328,16 @@ void ScatterPlotItem::mousePressEvent(QMouseEvent *event) {
         return;
     }
 
+    if (isEditMode()) {
+        if (beginRectangleEdit(event->localPos())) {
+            event->accept();
+            return;
+        }
+
+        QQuickItem::mousePressEvent(event);
+        return;
+    }
+
     dragging_ = true;
     dragStart_ = event->localPos();
     dragCurrent_ = dragStart_;
@@ -327,6 +359,13 @@ void ScatterPlotItem::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
 
+    if (rectangleEdit_.active) {
+        dragCurrent_ = event->localPos();
+        update();
+        event->accept();
+        return;
+    }
+
     if (!dragging_) {
         QQuickItem::mouseMoveEvent(event);
         return;
@@ -339,6 +378,31 @@ void ScatterPlotItem::mouseMoveEvent(QMouseEvent *event) {
 
 void ScatterPlotItem::mouseReleaseEvent(QMouseEvent *event) {
     if (isPolygonMode()) {
+        event->accept();
+        return;
+    }
+
+    if (rectangleEdit_.active && event->button() == Qt::LeftButton) {
+        dragCurrent_ = event->localPos();
+        const QRectF editedBounds = editedRectangleBounds(dragCurrent_);
+        const QString populationId = rectangleEdit_.populationId;
+        const QRectF originalBounds = rectangleEdit_.startBounds;
+        rectangleEdit_ = RectangleEditState {};
+        update();
+
+        const bool changed = qAbs(editedBounds.left() - originalBounds.left()) > 1e-9
+            || qAbs(editedBounds.right() - originalBounds.right()) > 1e-9
+            || qAbs(editedBounds.top() - originalBounds.top()) > 1e-9
+            || qAbs(editedBounds.bottom() - originalBounds.bottom()) > 1e-9;
+        if (changed && editedBounds.width() > 0.0 && editedBounds.height() > 0.0) {
+            emit rectangleGateEdited(
+                populationId,
+                editedBounds.left(),
+                editedBounds.right(),
+                editedBounds.top(),
+                editedBounds.bottom());
+        }
+
         event->accept();
         return;
     }
@@ -459,7 +523,12 @@ QVector<ScatterPlotItem::GateOverlay> ScatterPlotItem::toGateOverlays(const QVar
         }
 
         if (vertices.size() >= 2) {
+            QString kind = overlayMap.value("kind").toString().trimmed().toLower();
+            if (kind.isEmpty()) {
+                kind = vertices.size() == 5 ? QStringLiteral("rectangle") : QStringLiteral("polygon");
+            }
             overlays.push_back(GateOverlay {
+                kind,
                 overlayMap.value("population_id").toString(),
                 vertices,
             });
@@ -559,11 +628,195 @@ bool ScatterPlotItem::isPanMode() const {
     return interactionMode_ == "pan";
 }
 
+bool ScatterPlotItem::isEditMode() const {
+    return interactionMode_ == "edit";
+}
+
 void ScatterPlotItem::clearInteractionDraft() {
     dragging_ = false;
+    rectangleEdit_ = RectangleEditState {};
     polygonVertices_.clear();
     polygonHasHover_ = false;
     update();
+}
+
+const ScatterPlotItem::GateOverlay *ScatterPlotItem::selectedRectangleOverlay() const {
+    if (selectedPopulationKey_.isEmpty() || selectedPopulationKey_ == "__all__") {
+        return nullptr;
+    }
+
+    for (const GateOverlay &overlay : gateOverlayBuffer_) {
+        if (overlay.populationId == selectedPopulationKey_ && overlay.kind == "rectangle"
+            && overlay.vertices.size() >= 4) {
+            return &overlay;
+        }
+    }
+    return nullptr;
+}
+
+QRectF ScatterPlotItem::overlayBoundsData(const GateOverlay &overlay) const {
+    if (overlay.vertices.isEmpty()) {
+        return QRectF();
+    }
+
+    qreal left = overlay.vertices.first().x();
+    qreal right = left;
+    qreal bottom = overlay.vertices.first().y();
+    qreal top = bottom;
+    for (const QPointF &vertex : overlay.vertices) {
+        left = qMin(left, vertex.x());
+        right = qMax(right, vertex.x());
+        bottom = qMin(bottom, vertex.y());
+        top = qMax(top, vertex.y());
+    }
+    return QRectF(QPointF(left, bottom), QPointF(right, top)).normalized();
+}
+
+QRectF ScatterPlotItem::mapDataBoundsToPlot(
+    const QRectF &dataBounds,
+    const QRectF &bounds,
+    const QRectF &plotArea) const {
+    const QPointF lowerLeft = mapDataToPlot(QPointF(dataBounds.left(), dataBounds.top()), bounds, plotArea);
+    const QPointF upperRight = mapDataToPlot(QPointF(dataBounds.right(), dataBounds.bottom()), bounds, plotArea);
+    return QRectF(lowerLeft, upperRight).normalized();
+}
+
+ScatterPlotItem::RectangleEditHandle ScatterPlotItem::hitTestRectangleEdit(
+    const GateOverlay &overlay,
+    const QPointF &plotPosition,
+    const QRectF &bounds,
+    const QRectF &plotArea) const {
+    const QRectF plotBounds = mapDataBoundsToPlot(overlayBoundsData(overlay), bounds, plotArea);
+    const QRectF expanded = plotBounds.adjusted(
+        -kEditHandleHitPixels,
+        -kEditHandleHitPixels,
+        kEditHandleHitPixels,
+        kEditHandleHitPixels);
+    if (!expanded.contains(plotPosition)) {
+        return RectangleEditHandle::None;
+    }
+
+    const bool nearLeft = qAbs(plotPosition.x() - plotBounds.left()) <= kEditHandleHitPixels;
+    const bool nearRight = qAbs(plotPosition.x() - plotBounds.right()) <= kEditHandleHitPixels;
+    const bool nearTop = qAbs(plotPosition.y() - plotBounds.top()) <= kEditHandleHitPixels;
+    const bool nearBottom = qAbs(plotPosition.y() - plotBounds.bottom()) <= kEditHandleHitPixels;
+
+    if (nearLeft && nearTop) {
+        return RectangleEditHandle::TopLeft;
+    }
+    if (nearRight && nearTop) {
+        return RectangleEditHandle::TopRight;
+    }
+    if (nearLeft && nearBottom) {
+        return RectangleEditHandle::BottomLeft;
+    }
+    if (nearRight && nearBottom) {
+        return RectangleEditHandle::BottomRight;
+    }
+    if (nearLeft) {
+        return RectangleEditHandle::Left;
+    }
+    if (nearRight) {
+        return RectangleEditHandle::Right;
+    }
+    if (nearTop) {
+        return RectangleEditHandle::Top;
+    }
+    if (nearBottom) {
+        return RectangleEditHandle::Bottom;
+    }
+    return plotBounds.contains(plotPosition) ? RectangleEditHandle::Move : RectangleEditHandle::None;
+}
+
+bool ScatterPlotItem::beginRectangleEdit(const QPointF &plotPosition) {
+    const GateOverlay *overlay = selectedRectangleOverlay();
+    if (overlay == nullptr) {
+        return false;
+    }
+
+    const QRectF bounds = dataRect();
+    const QRectF plotArea = plotRect();
+    const RectangleEditHandle handle = hitTestRectangleEdit(*overlay, plotPosition, bounds, plotArea);
+    if (handle == RectangleEditHandle::None) {
+        return false;
+    }
+
+    rectangleEdit_.active = true;
+    rectangleEdit_.populationId = overlay->populationId;
+    rectangleEdit_.startBounds = overlayBoundsData(*overlay);
+    rectangleEdit_.startData = mapPlotToData(plotPosition, bounds, plotArea);
+    rectangleEdit_.handle = handle;
+    dragStart_ = plotPosition;
+    dragCurrent_ = plotPosition;
+    update();
+    return true;
+}
+
+QRectF ScatterPlotItem::editedRectangleBounds(const QPointF &plotPosition) const {
+    if (!rectangleEdit_.active) {
+        return QRectF();
+    }
+
+    const QPointF currentData = mapPlotToData(plotPosition, dataRect(), plotRect());
+    const qreal xDelta = currentData.x() - rectangleEdit_.startData.x();
+    const qreal yDelta = currentData.y() - rectangleEdit_.startData.y();
+    qreal left = rectangleEdit_.startBounds.left();
+    qreal right = rectangleEdit_.startBounds.right();
+    qreal bottom = rectangleEdit_.startBounds.top();
+    qreal top = rectangleEdit_.startBounds.bottom();
+
+    switch (rectangleEdit_.handle) {
+    case RectangleEditHandle::Move:
+        left += xDelta;
+        right += xDelta;
+        bottom += yDelta;
+        top += yDelta;
+        break;
+    case RectangleEditHandle::Left:
+        left += xDelta;
+        break;
+    case RectangleEditHandle::Right:
+        right += xDelta;
+        break;
+    case RectangleEditHandle::Top:
+        top += yDelta;
+        break;
+    case RectangleEditHandle::Bottom:
+        bottom += yDelta;
+        break;
+    case RectangleEditHandle::TopLeft:
+        left += xDelta;
+        top += yDelta;
+        break;
+    case RectangleEditHandle::TopRight:
+        right += xDelta;
+        top += yDelta;
+        break;
+    case RectangleEditHandle::BottomLeft:
+        left += xDelta;
+        bottom += yDelta;
+        break;
+    case RectangleEditHandle::BottomRight:
+        right += xDelta;
+        bottom += yDelta;
+        break;
+    case RectangleEditHandle::None:
+        break;
+    }
+
+    return QRectF(
+        QPointF(qMin(left, right), qMin(bottom, top)),
+        QPointF(qMax(left, right), qMax(bottom, top)));
+}
+
+QVector<QPointF> ScatterPlotItem::rectangleVertices(const QRectF &dataBounds) const {
+    return QVector<QPointF> {
+        QPointF(dataBounds.left(), dataBounds.top()),
+        QPointF(dataBounds.right(), dataBounds.top()),
+        QPointF(dataBounds.right(), dataBounds.bottom()),
+        QPointF(dataBounds.left(), dataBounds.bottom()),
+        QPointF(dataBounds.left(), dataBounds.top()),
+    };
 }
 
 QSGGeometryNode *ScatterPlotItem::buildSeriesNode(

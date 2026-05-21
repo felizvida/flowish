@@ -56,6 +56,7 @@ signals:
     void plotRangeChanged();
     void interactionModeChanged();
     void rangeGateDrawn(double min, double max);
+    void rangeGateEdited(const QString &populationId, double min, double max);
     void plotPanned(double xDelta);
 
 protected:
@@ -71,6 +72,22 @@ private:
         double max;
     };
 
+    enum class RangeEditHandle {
+        None,
+        Move,
+        Min,
+        Max,
+    };
+
+    struct RangeEditState {
+        bool active = false;
+        QString populationId;
+        double startMin = 0.0;
+        double startMax = 0.0;
+        double startData = 0.0;
+        RangeEditHandle handle = RangeEditHandle::None;
+    };
+
     static QVector<QRectF> toBinRects(const QVariantList &values);
     static QVector<RangeOverlay> toRangeOverlays(const QVariantList &values);
     QRectF dataRect() const;
@@ -79,9 +96,23 @@ private:
     double mapPlotXToData(double x, const QRectF &bounds, const QRectF &plotArea) const;
     QRectF mapBinToPlot(const QRectF &dataRect, const QRectF &bounds, const QRectF &plotArea) const;
     bool isPanMode() const;
+    bool isEditMode() const;
+    const RangeOverlay *selectedRangeOverlay() const;
+    RangeEditHandle hitTestRangeEdit(
+        const RangeOverlay &overlay,
+        const QPointF &plotPosition,
+        const QRectF &bounds,
+        const QRectF &plotArea) const;
+    bool beginRangeEdit(const QPointF &plotPosition);
+    RangeOverlay editedRangeOverlay(const QPointF &plotPosition) const;
     QSGGeometryNode *buildSelectionNode(const QRectF &selectionRect) const;
     QSGGeometryNode *buildSelectionNode(const QRectF &selectionRect, const QColor &color) const;
     QSGGeometryNode *buildRangeOverlayNode(
+        const RangeOverlay &overlay,
+        const QColor &color,
+        const QRectF &bounds,
+        const QRectF &plotArea) const;
+    QSGGeometryNode *buildRangeHandleNode(
         const RangeOverlay &overlay,
         const QColor &color,
         const QRectF &bounds,
@@ -107,4 +138,5 @@ private:
     bool dragging_ = false;
     QPointF dragStart_;
     QPointF dragCurrent_;
+    RangeEditState rangeEdit_;
 };

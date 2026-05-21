@@ -26,7 +26,7 @@ The left rail contains:
 - Batch template application and grouped stats export
 - Derived metric configuration and derived-metric export
 - Command presets for compatible samples
-- Tool selection for rectangle or polygon gating
+- Tool selection for rectangle, polygon, pan, and edit interactions
 - Gate refinement for selected rectangle, range, and polygon populations
 - Undo, redo, and reset controls
 - The population list
@@ -55,6 +55,13 @@ After selecting a gated population, use `Gate Refinement` in the left rail to ap
 - Polygon gates expose one `x,y` vertex per line.
 - `Append Gate Edit` records an explicit update command instead of mutating history silently.
 - Replayed child populations recompute from the edited parent gate, so downstream stats and overlays stay consistent.
+
+You can also select `Edit Tool` and drag the selected rectangle or histogram range directly on the plot.
+
+- Rectangle gates expose visible corner handles, edge handles, and body dragging on scatter plots.
+- Histogram range gates expose visible min/max handles and body dragging on histogram plots.
+- Releasing a real edit appends the same replayable update command used by exact entry.
+- A simple click without movement does not add a no-op command to the log.
 
 ## Samples And Session State
 
@@ -116,6 +123,7 @@ Each plot panel now includes explicit replayable view controls:
 - `Focus` reframes the active projection around the currently selected population
 - `Zoom In` and `Zoom Out` scale the current plot extents around the plot center
 - `Pan Tool` lets you drag scatter or histogram panels to shift the visible range
+- `Edit Tool` lets you drag selected rectangle and histogram range gate handles without changing the plot view
 - `View Fields` reveals exact x/y min/max inputs, and `Set View` applies those manual bounds
 
 How they behave:
@@ -155,7 +163,7 @@ How it behaves today:
 - `Low Gate` creates the same command type from the visible minimum to the midpoint of the current histogram view
 - `High Gate` creates the same command type from the midpoint of the current histogram view to the visible maximum
 - committed histogram range gates appear as translucent overlays, with the selected population emphasized
-- histogram panels do not yet support draggable editable threshold handles
+- selected histogram range gates show draggable min/max handles in `Edit Tool`
 
 Parallax currently chooses the histogram channel automatically, preferring a non-time, non-structural analysis channel such as a fluorescence marker when available.
 
@@ -296,6 +304,20 @@ What happens next:
 - If you click `High Gate`, the lower bound is the midpoint of the current visible histogram range and the upper bound is the current visible maximum
 - The new population is selected immediately so the histogram highlights its gated bins
 
+### Edit Tool
+
+Use `Edit Tool` when a gate is close but needs adjustment.
+
+How it works:
+
+- Select an existing rectangle or histogram range population in the population list.
+- Select `Edit Tool`.
+- On scatter plots, drag a rectangle corner, edge, or body.
+- On histogram plots, drag the range's min handle, max handle, or body.
+- Release to append an `update_rectangle_gate` or `update_range_gate` command.
+
+Polygon gates are still refined through the exact `Gate Refinement` vertex editor in this version.
+
 ## Command Log
 
 The command log is the analytical history of the session. Each row corresponds to one applied gate command and is replayed through the shared Rust engine.
@@ -361,7 +383,7 @@ The backend exists to preserve local/cloud parity pressure early, not to replace
 
 Parallax does not yet include:
 
-- Gate editing handles
+- Polygon vertex handles
 - Density plots
 - PDF/SVG figure export and report export
 - Cloud sync

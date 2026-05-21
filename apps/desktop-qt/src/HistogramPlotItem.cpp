@@ -12,6 +12,7 @@ namespace {
 
 constexpr qreal kPlotPadding = 18.0;
 constexpr qreal kMinimumDragPixels = 8.0;
+constexpr qreal kEditHandleHitPixels = 10.0;
 
 bool sameRange(double left, double right) {
     return qAbs(left - right) < 1e-9;
@@ -146,14 +147,19 @@ void HistogramPlotItem::setYMax(double value) {
 
 void HistogramPlotItem::setInteractionMode(const QString &mode) {
     const QString normalized = mode.trimmed().toLower();
-    const QString nextMode =
-        normalized == "pan" ? QStringLiteral("pan") : QStringLiteral("rectangle");
+    QString nextMode = QStringLiteral("rectangle");
+    if (normalized == "pan") {
+        nextMode = QStringLiteral("pan");
+    } else if (normalized == "edit") {
+        nextMode = QStringLiteral("edit");
+    }
     if (interactionMode_ == nextMode) {
         return;
     }
 
     interactionMode_ = nextMode;
     dragging_ = false;
+    rangeEdit_ = RangeEditState {};
     update();
     emit interactionModeChanged();
 }
@@ -191,7 +197,17 @@ QSGNode *HistogramPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
             QColor color("#ef8354");
             color.setAlphaF(0.24);
             root->appendChildNode(buildRangeOverlayNode(overlay, color, bounds, plotArea));
+            if (isEditMode() && !rangeEdit_.active) {
+                root->appendChildNode(buildRangeHandleNode(overlay, QColor("#f4a259"), bounds, plotArea));
+            }
         }
+    }
+    if (rangeEdit_.active) {
+        const RangeOverlay editedOverlay = editedRangeOverlay(dragCurrent_);
+        QColor color("#f4a259");
+        color.setAlphaF(0.28);
+        root->appendChildNode(buildRangeOverlayNode(editedOverlay, color, bounds, plotArea));
+        root->appendChildNode(buildRangeHandleNode(editedOverlay, QColor("#f4a259"), bounds, plotArea));
     }
     if (dragging_ && !isPanMode()) {
         const QRectF activeSelection = selectionRect();
@@ -208,6 +224,16 @@ void HistogramPlotItem::mousePressEvent(QMouseEvent *event) {
         return;
     }
 
+    if (isEditMode()) {
+        if (beginRangeEdit(event->localPos())) {
+            event->accept();
+            return;
+        }
+
+        QQuickItem::mousePressEvent(event);
+        return;
+    }
+
     dragging_ = true;
     dragStart_ = event->localPos();
     dragCurrent_ = dragStart_;
@@ -216,6 +242,13 @@ void HistogramPlotItem::mousePressEvent(QMouseEvent *event) {
 }
 
 void HistogramPlotItem::mouseMoveEvent(QMouseEvent *event) {
+    if (rangeEdit_.active) {
+        dragCurrent_ = event->localPos();
+        update();
+        event->accept();
+        return;
+    }
+
     if (!dragging_) {
         QQuickItem::mouseMoveEvent(event);
         return;
@@ -227,6 +260,25 @@ void HistogramPlotItem::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void HistogramPlotItem::mouseReleaseEvent(QMouseEvent *event) {
+    if (rangeEdit_.active && event->button() == Qt::LeftButton) {
+        dragCurrent_ = event->localPos();
+        const RangeOverlay editedOverlay = editedRangeOverlay(dragCurrent_);
+        const QString populationId = rangeEdit_.populationId;
+        const double originalMin = rangeEdit_.startMin;
+        const double originalMax = rangeEdit_.startMax;
+        rangeEdit_ = RangeEditState {};
+        update();
+
+        const bool changed =
+            qAbs(editedOverlay.min - originalMin) > 1e-9 || qAbs(editedOverlay.max - originalMax) > 1e-9;
+        if (changed && !sameRange(editedOverlay.min, editedOverlay.max)) {
+            emit rangeGateEdited(populationId, editedOverlay.min, editedOverlay.max);
+        }
+
+        event->accept();
+        return;
+    }
+
     if (!dragging_ || event->button() != Qt::LeftButton) {
         QQuickItem::mouseReleaseEvent(event);
         return;
@@ -345,6 +397,106 @@ bool HistogramPlotItem::isPanMode() const {
     return interactionMode_ == "pan";
 }
 
+bool HistogramPlotItem::isEditMode() const {
+    return interactionMode_ == "edit";
+}
+
+const HistogramPlotItem::RangeOverlay *HistogramPlotItem::selectedRangeOverlay() const {
+    if (selectedPopulationKey_.isEmpty() || selectedPopulationKey_ == "__all__") {
+        return nullptr;
+    }
+
+    for (const RangeOverlay &overlay : rangeOverlayBuffer_) {
+        if (overlay.populationId == selectedPopulationKey_) {
+            return &overlay;
+        }
+    }
+    return nullptr;
+}
+
+HistogramPlotItem::RangeEditHandle HistogramPlotItem::hitTestRangeEdit(
+    const RangeOverlay &overlay,
+    const QPointF &plotPosition,
+    const QRectF &bounds,
+    const QRectF &plotArea) const {
+    const qreal minX =
+        plotArea.left() + (((overlay.min - bounds.left()) / bounds.width()) * plotArea.width());
+    const qreal maxX =
+        plotArea.left() + (((overlay.max - bounds.left()) / bounds.width()) * plotArea.width());
+    const qreal left = qBound(plotArea.left(), qMin(minX, maxX), plotArea.right());
+    const qreal right = qBound(plotArea.left(), qMax(minX, maxX), plotArea.right());
+    const QRectF expanded(
+        QPointF(left - kEditHandleHitPixels, plotArea.top()),
+        QPointF(right + kEditHandleHitPixels, plotArea.bottom()));
+    if (!expanded.normalized().contains(plotPosition)) {
+        return RangeEditHandle::None;
+    }
+
+    if (qAbs(plotPosition.x() - left) <= kEditHandleHitPixels) {
+        return RangeEditHandle::Min;
+    }
+    if (qAbs(plotPosition.x() - right) <= kEditHandleHitPixels) {
+        return RangeEditHandle::Max;
+    }
+    if (plotPosition.x() >= left && plotPosition.x() <= right) {
+        return RangeEditHandle::Move;
+    }
+    return RangeEditHandle::None;
+}
+
+bool HistogramPlotItem::beginRangeEdit(const QPointF &plotPosition) {
+    const RangeOverlay *overlay = selectedRangeOverlay();
+    if (overlay == nullptr) {
+        return false;
+    }
+
+    const QRectF bounds = dataRect();
+    const QRectF plotArea = plotRect();
+    const RangeEditHandle handle = hitTestRangeEdit(*overlay, plotPosition, bounds, plotArea);
+    if (handle == RangeEditHandle::None) {
+        return false;
+    }
+
+    rangeEdit_.active = true;
+    rangeEdit_.populationId = overlay->populationId;
+    rangeEdit_.startMin = overlay->min;
+    rangeEdit_.startMax = overlay->max;
+    rangeEdit_.startData = mapPlotXToData(plotPosition.x(), bounds, plotArea);
+    rangeEdit_.handle = handle;
+    dragStart_ = plotPosition;
+    dragCurrent_ = plotPosition;
+    update();
+    return true;
+}
+
+HistogramPlotItem::RangeOverlay HistogramPlotItem::editedRangeOverlay(const QPointF &plotPosition) const {
+    const double current = mapPlotXToData(plotPosition.x(), dataRect(), plotRect());
+    const double delta = current - rangeEdit_.startData;
+    double min = rangeEdit_.startMin;
+    double max = rangeEdit_.startMax;
+
+    switch (rangeEdit_.handle) {
+    case RangeEditHandle::Move:
+        min += delta;
+        max += delta;
+        break;
+    case RangeEditHandle::Min:
+        min += delta;
+        break;
+    case RangeEditHandle::Max:
+        max += delta;
+        break;
+    case RangeEditHandle::None:
+        break;
+    }
+
+    return RangeOverlay {
+        rangeEdit_.populationId,
+        qMin(min, max),
+        qMax(min, max),
+    };
+}
+
 QRectF HistogramPlotItem::mapBinToPlot(
     const QRectF &dataRect,
     const QRectF &bounds,
@@ -416,6 +568,48 @@ QSGGeometryNode *HistogramPlotItem::buildRangeOverlayNode(
         mapped.setWidth(1.0);
     }
     return buildSelectionNode(mapped.normalized(), color);
+}
+
+QSGGeometryNode *HistogramPlotItem::buildRangeHandleNode(
+    const RangeOverlay &overlay,
+    const QColor &color,
+    const QRectF &bounds,
+    const QRectF &plotArea) const {
+    const qreal minX = plotArea.left() + (((overlay.min - bounds.left()) / bounds.width()) * plotArea.width());
+    const qreal maxX = plotArea.left() + (((overlay.max - bounds.left()) / bounds.width()) * plotArea.width());
+    const qreal left = qBound(plotArea.left(), qMin(minX, maxX), plotArea.right());
+    const qreal right = qBound(plotArea.left(), qMax(minX, maxX), plotArea.right());
+    constexpr qreal handleWidth = 5.0;
+
+    auto *geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), 12);
+    geometry->setDrawingMode(QSGGeometry::DrawTriangles);
+    auto *vertices = geometry->vertexDataAsPoint2D();
+
+    auto writeHandle = [&](int offset, qreal centerX) {
+        const float handleLeft = static_cast<float>(centerX - (handleWidth * 0.5));
+        const float handleRight = static_cast<float>(centerX + (handleWidth * 0.5));
+        const float top = static_cast<float>(plotArea.top());
+        const float bottom = static_cast<float>(plotArea.bottom());
+
+        vertices[offset + 0].set(handleLeft, top);
+        vertices[offset + 1].set(handleRight, top);
+        vertices[offset + 2].set(handleLeft, bottom);
+        vertices[offset + 3].set(handleLeft, bottom);
+        vertices[offset + 4].set(handleRight, top);
+        vertices[offset + 5].set(handleRight, bottom);
+    };
+    writeHandle(0, left);
+    writeHandle(6, right);
+
+    auto *material = new QSGFlatColorMaterial();
+    material->setColor(color);
+
+    auto *node = new QSGGeometryNode();
+    node->setGeometry(geometry);
+    node->setMaterial(material);
+    node->setFlag(QSGNode::OwnsGeometry, true);
+    node->setFlag(QSGNode::OwnsMaterial, true);
+    return node;
 }
 
 QSGGeometryNode *HistogramPlotItem::buildBarsNode(

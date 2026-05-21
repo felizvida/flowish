@@ -7,6 +7,7 @@ By the end, you will:
 - create a root rectangle gate
 - create a child polygon gate
 - create a histogram range gate
+- refine a selected gate with exact fields or plot handles
 - apply a transform preset
 - review or override compensation when a real sample provides spillover metadata
 - refocus a plot on the active population
@@ -104,7 +105,10 @@ This is the important Parallax idea: your analysis is represented as an ordered,
 
 ## Step 6. Refine A Gate
 
-Select `lymphocytes` in the population list, then use `Gate Refinement` to tighten one of the rectangle bounds. Click `Append Gate Edit`.
+Select `lymphocytes` in the population list, then refine the gate in either of two ways:
+
+1. Use `Gate Refinement` to tighten one of the rectangle bounds, then click `Append Gate Edit`.
+2. Select `Edit Tool`, then drag the selected rectangle's corner, edge, or body directly on the scatter plot.
 
 Expected result:
 
@@ -124,6 +128,8 @@ Expected result:
 - the histogram highlights the bins that fall in the gated range
 
 For `Low Gate`, Parallax uses the visible minimum through the midpoint. For `High Gate`, it uses the midpoint through the visible maximum. Use `Zoom In`, `Zoom Out`, or `Auto` first if you want to change the visible range before using either shortcut.
+
+After creating a range gate, select it in the population list and choose `Edit Tool`. Drag the range's left handle, right handle, or filled body to append an `update_range_gate` command without re-authoring the gate from scratch.
 
 ## Step 8. Apply A Transform Preset
 
