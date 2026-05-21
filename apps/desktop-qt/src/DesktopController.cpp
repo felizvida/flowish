@@ -1,15 +1,18 @@
 #include "DesktopController.h"
+#include "DesktopFigureExport.h"
 #include "DesktopPayloadPolicy.h"
 
-#include <QFileDialog>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
+#include <QFont>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QList>
 #include <QMarginsF>
 #include <QPageLayout>
 #include <QPageSize>
@@ -95,6 +98,36 @@ QString safeFileStem(const QString &value) {
         stem.chop(1);
     }
     return stem.isEmpty() ? QStringLiteral("parallax-figure") : stem;
+}
+
+bool isTemporaryFigureCapture(const QString &path) {
+    const QFileInfo captureInfo(path);
+    return captureInfo.absoluteDir() == QDir::temp()
+        && captureInfo.fileName().startsWith(QStringLiteral("parallax-figure-"));
+}
+
+void removeTemporaryFigureCapture(const QString &path) {
+    if (isTemporaryFigureCapture(path)) {
+        QFile::remove(path);
+    }
+}
+
+QStringList figureCapturePathsFromVariants(const QVariantList &values) {
+    QStringList paths;
+    paths.reserve(values.size());
+    for (const QVariant &value : values) {
+        const QString path = value.toString().trimmed();
+        if (!path.isEmpty()) {
+            paths.append(path);
+        }
+    }
+    return paths;
+}
+
+void removeTemporaryFigureCaptures(const QStringList &paths) {
+    for (const QString &path : paths) {
+        removeTemporaryFigureCapture(path);
+    }
 }
 
 QVariantMap pointColumnsFromPointMaps(const QVariantList &points) {
@@ -864,6 +897,22 @@ QString DesktopController::chooseFigurePdfExportPath(const QString &suggestedNam
         tr("PDF Documents (*.pdf);;All Files (*)"));
 }
 
+QString DesktopController::chooseFigureReportPdfExportPath(const QString &suggestedName) {
+    QString candidate = suggestedName.trimmed();
+    if (candidate.isEmpty()) {
+        candidate = QStringLiteral("parallax-plot-report.pdf");
+    }
+    if (!candidate.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)) {
+        candidate.append(QStringLiteral(".pdf"));
+    }
+
+    return QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Export Plot Report PDF"),
+        candidate,
+        tr("PDF Documents (*.pdf);;All Files (*)"));
+}
+
 QString DesktopController::temporaryFigureCapturePath(const QString &suggestedName) {
     const QString baseName = QFileInfo(suggestedName).completeBaseName();
     const QString uniqueId = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -876,11 +925,7 @@ bool DesktopController::exportFigurePdfFromImage(
     const QString &pdfPath,
     const QString &title) {
     QImage image(imagePath);
-    const QFileInfo captureInfo(imagePath);
-    if (captureInfo.absoluteDir() == QDir::temp()
-        && captureInfo.fileName().startsWith(QStringLiteral("parallax-figure-"))) {
-        QFile::remove(imagePath);
-    }
+    removeTemporaryFigureCapture(imagePath);
 
     if (image.isNull()) {
         setLastError(QStringLiteral("Failed to read captured figure image for PDF export"));
@@ -909,17 +954,93 @@ bool DesktopController::exportFigurePdfFromImage(
         return false;
     }
 
-    const QRectF pageRect = printer.pageRect(QPrinter::DevicePixel);
-    QSizeF scaledSize(image.size());
-    scaledSize.scale(pageRect.size(), Qt::KeepAspectRatio);
-    const QRectF targetRect(
-        pageRect.left() + ((pageRect.width() - scaledSize.width()) / 2.0),
-        pageRect.top() + ((pageRect.height() - scaledSize.height()) / 2.0),
-        scaledSize.width(),
-        scaledSize.height());
+    const QRectF targetRect = fitFigureIntoSlot(image.size(), printer.pageRect(QPrinter::DevicePixel));
     painter.drawImage(targetRect, image);
     painter.end();
     return true;
+}
+
+bool DesktopController::exportFigureReportPdfFromImages(
+    const QVariantList &imagePaths,
+    const QString &pdfPath,
+    const QString &title) {
+    const QStringList capturePaths = figureCapturePathsFromVariants(imagePaths);
+    if (pdfPath.trimmed().isEmpty()) {
+        removeTemporaryFigureCaptures(capturePaths);
+        setLastError(QStringLiteral("Report PDF export path cannot be empty"));
+        return false;
+    }
+    if (capturePaths.isEmpty()) {
+        setLastError(QStringLiteral("No captured figures were provided for report export"));
+        return false;
+    }
+
+    QList<QImage> images;
+    images.reserve(capturePaths.size());
+    for (const QString &imagePath : capturePaths) {
+        QImage image(imagePath);
+        removeTemporaryFigureCapture(imagePath);
+        if (image.isNull()) {
+            setLastError(QStringLiteral("Failed to read captured figure image for report export"));
+            return false;
+        }
+        images.append(image);
+    }
+
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setOutputFormat(QPrinter::PdfFormat);
+    printer.setOutputFileName(pdfPath);
+    printer.setPageLayout(QPageLayout(
+        QPageSize(QPageSize::Letter),
+        QPageLayout::Landscape,
+        QMarginsF(24.0, 24.0, 24.0, 24.0),
+        QPageLayout::Point));
+    printer.setDocName(title.trimmed().isEmpty() ? QStringLiteral("Parallax Plot Report") : title.trimmed());
+
+    QPainter painter(&printer);
+    if (!painter.isActive()) {
+        setLastError(QStringLiteral("Failed to start PDF writer for report export"));
+        return false;
+    }
+
+    const QRectF pageRect = printer.pageRect(QPrinter::DevicePixel);
+    const qreal gap = std::max<qreal>(24.0, pageRect.height() * 0.018);
+    qreal y = pageRect.top();
+
+    const QString reportTitle = title.trimmed().isEmpty() ? QStringLiteral("Parallax Plot Report") : title.trimmed();
+    QFont titleFont = painter.font();
+    titleFont.setPointSize(16);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    const qreal titleHeight = painter.fontMetrics().height() * 1.4;
+    painter.drawText(
+        QRectF(pageRect.left(), y, pageRect.width(), titleHeight),
+        Qt::AlignLeft | Qt::AlignVCenter,
+        reportTitle);
+    y += titleHeight + gap;
+
+    QList<QSizeF> imageSizes;
+    imageSizes.reserve(images.size());
+    for (const QImage &image : images) {
+        imageSizes.append(image.size());
+    }
+
+    const QRectF contentRect(
+        pageRect.left(),
+        y,
+        pageRect.width(),
+        std::max<qreal>(1.0, pageRect.bottom() - y));
+    const QList<QRectF> targetRects = stackFigureReportRects(imageSizes, contentRect, gap);
+    for (int i = 0; i < targetRects.size(); ++i) {
+        painter.drawImage(targetRects.at(i), images.at(i));
+    }
+
+    painter.end();
+    return true;
+}
+
+void DesktopController::discardTemporaryFigureCaptures(const QVariantList &imagePaths) {
+    removeTemporaryFigureCaptures(figureCapturePathsFromVariants(imagePaths));
 }
 
 void DesktopController::reportFigureExportFailure(const QString &message) {

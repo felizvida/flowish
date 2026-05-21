@@ -137,7 +137,7 @@ How they behave:
 
 ## Figure Export
 
-Each plot panel includes `Export PNG` and `Export PDF` for high-resolution figure capture.
+Each plot panel includes `Export PNG` and `Export PDF` for high-resolution single-figure capture. The left rail also includes `Export Plot Report PDF` for a one-page report assembled from the visible plot panels.
 
 How it behaves:
 
@@ -146,10 +146,11 @@ How it behaves:
 - interaction controls are hidden during the capture so the image includes the title, axis label, highlighted count, plot, and overlays without UI buttons
 - PNG export writes an image suitable for manuscript drafts, slides, and lab notebooks
 - PDF export wraps the same high-resolution capture onto a page-oriented PDF for sharing and review
+- plot report PDF export captures the visible plot cards with controls hidden and lays them out together on a single landscape page
 
 Current limit:
 
-- SVG/vector export, multi-panel layout export, and journal-specific styling presets are still future work
+- SVG/vector export, richer report layouts, and journal-specific styling presets are still future work
 
 ## Histogram View
 
@@ -358,7 +359,7 @@ Current implication:
 - Source-path workspace save/load is useful for active projects that stay on the same machine
 - Portable workspace bundles copy imported FCS files and validate manifest integrity so the analysis can move without the original acquisition folder
 - There is still no derived-data cache, compressed package format, recovery snapshot, or signed package manifest
-- custom free-form formulas, richer grouped-comparison views, density views, SVG/vector figure export, and richer transform tuning are still ahead
+- custom free-form formulas, richer grouped-comparison views, density views, SVG/vector figure export, richer report layouts, and richer transform tuning are still ahead
 
 ## CLI and Backend
 
@@ -385,7 +386,7 @@ The backend exists to preserve local/cloud parity pressure early, not to replace
 Parallax does not yet include:
 
 - Density plots
-- SVG/vector figure export and report export
+- SVG/vector figure export and richer report layout export
 - Cloud sync
 
 Those features are planned, but the current product center is still fast, explicit, reproducible analysis interactions.

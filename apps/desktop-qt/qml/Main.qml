@@ -165,6 +165,57 @@ ApplicationWindow {
         })
     }
 
+    function exportPlotReportPdf() {
+        const sampleName = desktopController.sample.display_name || "Parallax"
+        const path = desktopController.chooseFigureReportPdfExportPath(
+                    window.safeFileStem(sampleName) + "-plot-report.pdf")
+        if (path === "")
+            return
+
+        const entries = [
+                    { "card": plotACard, "plot": plotA, "suffix": "plot-a" },
+                    { "card": plotBCard, "plot": plotB, "suffix": "plot-b" },
+                    { "card": plotCCard, "plot": plotC, "suffix": "plot-c" }
+                ]
+        const capturePaths = []
+
+        function fail(message) {
+            desktopController.discardTemporaryFigureCaptures(capturePaths)
+            window.figureExportInProgress = false
+            desktopController.reportFigureExportFailure(message)
+        }
+
+        function captureAt(index) {
+            if (index >= entries.length) {
+                desktopController.exportFigureReportPdfFromImages(
+                            capturePaths,
+                            path,
+                            sampleName + " plot report")
+                window.figureExportInProgress = false
+                return
+            }
+
+            const entry = entries[index]
+            const stem = window.safeFileStem((entry.plot.title || entry.plot.id || entry.suffix) + "-" + entry.suffix)
+            const capturePath = desktopController.temporaryFigureCapturePath(stem + ".png")
+            const targetWidth = Math.max(1800, Math.round(entry.card.width * 3))
+            const targetHeight = Math.max(1200, Math.round(entry.card.height * 3))
+            entry.card.grabToImage(function (result) {
+                if (!result.saveToFile(capturePath)) {
+                    fail("Failed to capture plot report image for " + path)
+                    return
+                }
+                capturePaths.push(capturePath)
+                captureAt(index + 1)
+            }, Qt.size(targetWidth, targetHeight))
+        }
+
+        window.figureExportInProgress = true
+        Qt.callLater(function () {
+            captureAt(0)
+        })
+    }
+
     function compensationOverrideExample() {
         const channels = desktopController.sample.channels || []
         if (channels.length >= 2)
@@ -459,6 +510,12 @@ ApplicationWindow {
                             Button {
                                 text: "Export Derived Metric CSV"
                                 onClicked: desktopController.exportSelectedPopulationDerivedMetricCsv()
+                            }
+
+                            Button {
+                                text: "Export Plot Report PDF"
+                                enabled: !window.figureExportInProgress
+                                onClicked: window.exportPlotReportPdf()
                             }
 
                             Text {

@@ -12,6 +12,7 @@ By the end, you will:
 - review or override compensation when a real sample provides spillover metadata
 - refocus a plot on the active population
 - export a high-resolution plot PNG or PDF
+- export a one-page plot report PDF
 - inspect population stats and export them
 - configure and export a derived metric
 - inspect the resulting population hierarchy
@@ -182,6 +183,16 @@ Expected result:
 - interaction controls are hidden during the capture
 - the export keeps the plot title, axis label, highlighted count, and current gate overlays
 - PDF export places the same capture onto a page-oriented PDF for review or sharing
+
+## Step 10b. Export A Plot Report
+
+Click `Export Plot Report PDF` in the left rail and choose a destination.
+
+Expected result:
+
+- Parallax captures the visible plot cards with interaction controls hidden
+- the report PDF places the current plot panels together on one landscape page
+- the report reflects the current sample, gates, transforms, selected population, and plot-view ranges
 
 ## Step 11. Inspect Population Stats
 

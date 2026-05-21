@@ -46,6 +46,8 @@ add_custom_target(flowjoish-rust-bridge ALL
 add_executable(flowjoish-desktop
     src/DesktopController.cpp
     src/DesktopController.h
+    src/DesktopFigureExport.cpp
+    src/DesktopFigureExport.h
     src/DesktopPayloadPolicy.cpp
     src/DesktopPayloadPolicy.h
     src/HistogramPlotItem.cpp
@@ -72,6 +74,8 @@ target_link_libraries(flowjoish-desktop PRIVATE
 enable_testing()
 
 add_executable(flowjoish-desktop-policy-tests
+    src/DesktopFigureExport.cpp
+    src/DesktopFigureExport.h
     src/DesktopPayloadPolicy.cpp
     src/DesktopPayloadPolicy.h
     tests/DesktopPayloadPolicyTests.cpp

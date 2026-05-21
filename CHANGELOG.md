@@ -11,6 +11,7 @@
 - Added an explicit `Edit Tool` with draggable rectangle handles and histogram range handles that append replayable gate-update commands
 - Added draggable polygon vertex and body editing through the same replayable `update_polygon_gate` command path
 - Added per-plot PDF figure export using the same high-resolution control-hidden capture path as PNG export
+- Added single-page plot report PDF export that captures the visible plot panels with controls hidden
 
 ## v0.1.2 - 2026-03-20
 
