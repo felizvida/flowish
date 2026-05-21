@@ -70,6 +70,7 @@ signals:
     void rectangleGateDrawn(double xMin, double xMax, double yMin, double yMax);
     void rectangleGateEdited(const QString &populationId, double xMin, double xMax, double yMin, double yMax);
     void polygonGateDrawn(const QVariantList &vertices);
+    void polygonGateEdited(const QString &populationId, const QVariantList &vertices);
     void plotPanned(double xDelta, double yDelta);
 
 protected:
@@ -106,6 +107,26 @@ private:
         RectangleEditHandle handle = RectangleEditHandle::None;
     };
 
+    enum class PolygonEditHandle {
+        None,
+        Move,
+        Vertex,
+    };
+
+    struct PolygonEditHit {
+        PolygonEditHandle handle = PolygonEditHandle::None;
+        int vertexIndex = -1;
+    };
+
+    struct PolygonEditState {
+        bool active = false;
+        QString populationId;
+        QVector<QPointF> startVertices;
+        QPointF startData;
+        PolygonEditHandle handle = PolygonEditHandle::None;
+        int vertexIndex = -1;
+    };
+
     struct DensityCell {
         QRectF bounds;
         double intensity;
@@ -126,6 +147,7 @@ private:
     bool isEditMode() const;
     void clearInteractionDraft();
     const GateOverlay *selectedRectangleOverlay() const;
+    const GateOverlay *selectedPolygonOverlay() const;
     QRectF overlayBoundsData(const GateOverlay &overlay) const;
     QRectF mapDataBoundsToPlot(const QRectF &dataBounds, const QRectF &bounds, const QRectF &plotArea) const;
     RectangleEditHandle hitTestRectangleEdit(
@@ -136,6 +158,21 @@ private:
     bool beginRectangleEdit(const QPointF &plotPosition);
     QRectF editedRectangleBounds(const QPointF &plotPosition) const;
     QVector<QPointF> rectangleVertices(const QRectF &dataBounds) const;
+    QVector<QPointF> editablePolygonVertices(const GateOverlay &overlay) const;
+    QVector<QPointF> closedPolygonPath(const QVector<QPointF> &vertices) const;
+    PolygonEditHit hitTestPolygonEdit(
+        const GateOverlay &overlay,
+        const QPointF &plotPosition,
+        const QRectF &bounds,
+        const QRectF &plotArea) const;
+    bool polygonContainsPlotPoint(
+        const QVector<QPointF> &vertices,
+        const QPointF &plotPosition,
+        const QRectF &bounds,
+        const QRectF &plotArea) const;
+    bool beginPolygonEdit(const QPointF &plotPosition);
+    QVector<QPointF> editedPolygonVertices(const QPointF &plotPosition) const;
+    bool polygonVerticesChanged(const QVector<QPointF> &left, const QVector<QPointF> &right) const;
     QSGGeometryNode *buildSeriesNode(
         const QVector<QPointF> &points,
         const QColor &color,
@@ -175,6 +212,7 @@ private:
     QPointF dragStart_;
     QPointF dragCurrent_;
     RectangleEditState rectangleEdit_;
+    PolygonEditState polygonEdit_;
     QVector<QPointF> polygonVertices_;
     QPointF polygonHover_;
     bool polygonHasHover_ = false;

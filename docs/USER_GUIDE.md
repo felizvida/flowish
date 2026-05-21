@@ -56,9 +56,10 @@ After selecting a gated population, use `Gate Refinement` in the left rail to ap
 - `Append Gate Edit` records an explicit update command instead of mutating history silently.
 - Replayed child populations recompute from the edited parent gate, so downstream stats and overlays stay consistent.
 
-You can also select `Edit Tool` and drag the selected rectangle or histogram range directly on the plot.
+You can also select `Edit Tool` and drag the selected rectangle, polygon, or histogram range directly on the plot.
 
 - Rectangle gates expose visible corner handles, edge handles, and body dragging on scatter plots.
+- Polygon gates expose visible vertex handles and body dragging on scatter plots.
 - Histogram range gates expose visible min/max handles and body dragging on histogram plots.
 - Releasing a real edit appends the same replayable update command used by exact entry.
 - A simple click without movement does not add a no-op command to the log.
@@ -123,7 +124,7 @@ Each plot panel now includes explicit replayable view controls:
 - `Focus` reframes the active projection around the currently selected population
 - `Zoom In` and `Zoom Out` scale the current plot extents around the plot center
 - `Pan Tool` lets you drag scatter or histogram panels to shift the visible range
-- `Edit Tool` lets you drag selected rectangle and histogram range gate handles without changing the plot view
+- `Edit Tool` lets you drag selected rectangle, polygon, and histogram range gate handles without changing the plot view
 - `View Fields` reveals exact x/y min/max inputs, and `Set View` applies those manual bounds
 
 How they behave:
@@ -310,13 +311,12 @@ Use `Edit Tool` when a gate is close but needs adjustment.
 
 How it works:
 
-- Select an existing rectangle or histogram range population in the population list.
+- Select an existing rectangle, polygon, or histogram range population in the population list.
 - Select `Edit Tool`.
 - On scatter plots, drag a rectangle corner, edge, or body.
+- On scatter plots, drag a polygon vertex or body.
 - On histogram plots, drag the range's min handle, max handle, or body.
-- Release to append an `update_rectangle_gate` or `update_range_gate` command.
-
-Polygon gates are still refined through the exact `Gate Refinement` vertex editor in this version.
+- Release to append an `update_rectangle_gate`, `update_polygon_gate`, or `update_range_gate` command.
 
 ## Command Log
 
@@ -383,7 +383,6 @@ The backend exists to preserve local/cloud parity pressure early, not to replace
 
 Parallax does not yet include:
 
-- Polygon vertex handles
 - Density plots
 - PDF/SVG figure export and report export
 - Cloud sync

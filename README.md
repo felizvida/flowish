@@ -8,7 +8,7 @@
 
 Parallax is a local-first cytometry workstation built around one shared Rust engine, an explicit command log, and a native Qt/QML desktop. It is designed for teams who care about speed, deterministic results, and a clean handoff between interactive desktop work and reproducible execution.
 
-Today, Parallax is an early but real workstation shell. You can launch the desktop, start from the bundled demo sample or import one or many `.fcs` files, switch between samples inside one local session, assign cohort labels to samples, author rectangle, polygon, quadrant, and histogram range gates, refine selected rectangle and range gates directly from plot handles, inspect a native histogram view for channel distributions, review per-population counts, frequencies, means, and medians, define replayable derived metrics such as positive fractions and mean ratios, compare the selected population across loaded samples, inspect grouped cohort summaries, export active-sample, selected-population, derived-metric, cohort-summary, or batch stats to CSV, apply or override compensation with QC feedback, save portable workspace bundles, export high-resolution PNG plot figures, adjust plot views through explicit view actions, inspect the command log, and undo or redo gate actions through the same replayable state model.
+Today, Parallax is an early but real workstation shell. You can launch the desktop, start from the bundled demo sample or import one or many `.fcs` files, switch between samples inside one local session, assign cohort labels to samples, author rectangle, polygon, quadrant, and histogram range gates, refine selected rectangle, polygon, and range gates directly from plot handles, inspect a native histogram view for channel distributions, review per-population counts, frequencies, means, and medians, define replayable derived metrics such as positive fractions and mean ratios, compare the selected population across loaded samples, inspect grouped cohort summaries, export active-sample, selected-population, derived-metric, cohort-summary, or batch stats to CSV, apply or override compensation with QC feedback, save portable workspace bundles, export high-resolution PNG plot figures, adjust plot views through explicit view actions, inspect the command log, and undo or redo gate actions through the same replayable state model.
 
 ## Why Parallax
 
@@ -59,7 +59,7 @@ Today, Parallax is an early but real workstation shell. You can launch the deskt
 - Workspace bundles copy FCS sources and validate saved integrity metadata today, but derived caches, recovery snapshots, compression, and signed package manifests are not implemented yet
 - Derived metrics are limited to positive fraction and mean ratio today; custom formula editors and spreadsheet-style expressions are not implemented yet
 - Contour/density plot controls and reference-matched transform tuning are not implemented yet
-- Polygon vertex handles, PDF/SVG figure export, and multi-panel report export are not implemented yet
+- PDF/SVG figure export and multi-panel report export are not implemented yet
 - Cloud sync, jobs, and AI assistance are future phases
 
 ## Repository Layout

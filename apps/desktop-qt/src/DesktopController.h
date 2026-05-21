@@ -5,6 +5,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+class QJsonArray;
 class QJsonObject;
 
 class DesktopController : public QObject {
@@ -130,6 +131,9 @@ public:
         double yMin,
         double yMax);
     Q_INVOKABLE bool updateRangeGate(const QString &populationId, double min, double max);
+    Q_INVOKABLE bool updatePolygonGate(
+        const QString &populationId,
+        const QVariantList &vertices);
     Q_INVOKABLE bool updatePolygonGateFromText(
         const QString &populationId,
         const QString &verticesText);
@@ -167,6 +171,7 @@ private:
     bool createHistogramHalfRangeGateForPlot(
         const QString &plotId,
         bool high);
+    bool dispatchPolygonGateUpdate(const QString &populationId, const QJsonArray &vertices);
     static QString sanitizePopulationSegment(const QString &value);
 
     void *session_ = nullptr;

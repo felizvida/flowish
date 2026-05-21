@@ -59,7 +59,7 @@ ApplicationWindow {
         if (window.activeGateTool === "edit")
             return (plot.kind || "") === "histogram"
                     ? "Select a range population, then drag its min/max handles or body to append a replayable edit."
-                    : "Select a rectangle population, then drag its corners, edges, or body to append a replayable edit."
+                    : "Select a rectangle or polygon population, then drag its handles or body to append a replayable edit."
         if ((plot.kind || "") === "histogram")
             return "Drag horizontally, enter exact min/max thresholds, or use Low Gate / High Gate for midpoint shortcuts."
         return window.activeGateTool === "rectangle"
@@ -1558,7 +1558,7 @@ ApplicationWindow {
                                 text: window.activeGateTool === "pan"
                                       ? "Drag any plot to pan the current replayable view. Use Auto or Focus to return to computed extents."
                                       : window.activeGateTool === "edit"
-                                      ? "Select a rectangle or histogram range population, then drag its visible handles or body to append a deterministic gate-update command. Polygon gates can still be refined exactly in Gate Refinement."
+                                      ? "Select a rectangle, polygon, or histogram range population, then drag its visible handles or body to append a deterministic gate-update command."
                                       : window.activeGateTool === "rectangle"
                                       ? "Drag on scatter plots for rectangle gates, drag across histograms for range gates, enter exact histogram min/max thresholds, use Quadrants for four-way scatter splits, or use Low Gate / High Gate for midpoint histogram gates. Every gate is appended to the Rust command log and becomes a child of the currently selected population."
                                       : "Click to place polygon vertices on either plot, then right-click to commit. Right-click with fewer than three vertices clears the draft."
@@ -2098,6 +2098,11 @@ ApplicationWindow {
                                                 plotA.id || "",
                                                 vertices)
                                 }
+                                onPolygonGateEdited: function (populationId, vertices) {
+                                    desktopController.updatePolygonGate(
+                                                populationId,
+                                                vertices)
+                                }
                                 onPlotPanned: function (xDelta, yDelta) {
                                     desktopController.panPlotView(
                                                 plotA.id || "",
@@ -2391,6 +2396,11 @@ ApplicationWindow {
                                 onPolygonGateDrawn: function (vertices) {
                                     desktopController.createPolygonGateForPlot(
                                                 plotB.id || "",
+                                                vertices)
+                                }
+                                onPolygonGateEdited: function (populationId, vertices) {
+                                    desktopController.updatePolygonGate(
+                                                populationId,
                                                 vertices)
                                 }
                                 onPlotPanned: function (xDelta, yDelta) {
@@ -2687,6 +2697,11 @@ ApplicationWindow {
                                 onPolygonGateDrawn: function (vertices) {
                                     desktopController.createPolygonGateForPlot(
                                                 plotC.id || "",
+                                                vertices)
+                                }
+                                onPolygonGateEdited: function (populationId, vertices) {
+                                    desktopController.updatePolygonGate(
+                                                populationId,
                                                 vertices)
                                 }
                                 onPlotPanned: function (xDelta, yDelta) {

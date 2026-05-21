@@ -1238,6 +1238,32 @@ bool DesktopController::updateRangeGate(const QString &populationId, double min,
         QJsonDocument(command).toJson(QJsonDocument::Compact)));
 }
 
+bool DesktopController::updatePolygonGate(
+    const QString &populationId,
+    const QVariantList &vertices) {
+    const QString trimmedPopulationId = populationId.trimmed();
+    if (trimmedPopulationId.isEmpty() || trimmedPopulationId == "__all__") {
+        setLastError("Select an existing polygon population before refining it");
+        return false;
+    }
+
+    QJsonArray jsonVertices;
+    for (const QVariant &value : vertices) {
+        const QVariantMap vertex = value.toMap();
+        bool okX = false;
+        bool okY = false;
+        const double x = vertex.value("x").toDouble(&okX);
+        const double y = vertex.value("y").toDouble(&okY);
+        if (!okX || !okY || !std::isfinite(x) || !std::isfinite(y)) {
+            setLastError("Polygon gate vertices must stay finite");
+            return false;
+        }
+        jsonVertices.push_back(QJsonObject{{"x", x}, {"y", y}});
+    }
+
+    return dispatchPolygonGateUpdate(trimmedPopulationId, jsonVertices);
+}
+
 bool DesktopController::updatePolygonGateFromText(
     const QString &populationId,
     const QString &verticesText) {
@@ -1262,15 +1288,23 @@ bool DesktopController::updatePolygonGateFromText(
             setLastError("Polygon vertices must use one 'x,y' pair per line");
             return false;
         }
-        const double x = parts.at(0).trimmed().toDouble();
-        const double y = parts.at(1).trimmed().toDouble();
-        if (!std::isfinite(x) || !std::isfinite(y)) {
+        bool okX = false;
+        bool okY = false;
+        const double x = parts.at(0).trimmed().toDouble(&okX);
+        const double y = parts.at(1).trimmed().toDouble(&okY);
+        if (!okX || !okY || !std::isfinite(x) || !std::isfinite(y)) {
             setLastError("Polygon gate vertices must stay finite");
             return false;
         }
         vertices.push_back(QJsonObject{{"x", x}, {"y", y}});
     }
 
+    return dispatchPolygonGateUpdate(trimmedPopulationId, vertices);
+}
+
+bool DesktopController::dispatchPolygonGateUpdate(
+    const QString &populationId,
+    const QJsonArray &vertices) {
     if (vertices.size() < 3) {
         setLastError("Polygon gates require at least three vertices");
         return false;
@@ -1282,7 +1316,7 @@ bool DesktopController::updatePolygonGateFromText(
     command.insert(
         "sample_id",
         sampleId.isEmpty() ? QStringLiteral("desktop-demo") : sampleId);
-    command.insert("population_id", trimmedPopulationId);
+    command.insert("population_id", populationId);
     command.insert("vertices", vertices);
 
     return dispatchCommandJson(QString::fromUtf8(

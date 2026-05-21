@@ -273,6 +273,21 @@ QSGNode *ScatterPlotItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData 
         }
         root->appendChildNode(buildSeriesNode(handles, QColor("#f4a259"), 13.0, bounds, plotArea));
     }
+    if (const GateOverlay *editableOverlay = selectedPolygonOverlay()) {
+        if (isEditMode() && !polygonEdit_.active) {
+            root->appendChildNode(buildSeriesNode(
+                editablePolygonVertices(*editableOverlay),
+                QColor("#f4a259"),
+                13.0,
+                bounds,
+                plotArea));
+        }
+    }
+    if (polygonEdit_.active) {
+        const QVector<QPointF> editedVertices = editedPolygonVertices(dragCurrent_);
+        root->appendChildNode(buildPolylineNode(closedPolygonPath(editedVertices), QColor("#f4a259"), bounds, plotArea));
+        root->appendChildNode(buildSeriesNode(editedVertices, QColor("#f4a259"), 13.0, bounds, plotArea));
+    }
     if (dragging_ && !isPanMode()) {
         const QRectF activeSelection = selectionRect();
         if (activeSelection.width() >= 1.0 && activeSelection.height() >= 1.0) {
@@ -329,7 +344,7 @@ void ScatterPlotItem::mousePressEvent(QMouseEvent *event) {
     }
 
     if (isEditMode()) {
-        if (beginRectangleEdit(event->localPos())) {
+        if (beginRectangleEdit(event->localPos()) || beginPolygonEdit(event->localPos())) {
             event->accept();
             return;
         }
@@ -360,6 +375,13 @@ void ScatterPlotItem::mouseMoveEvent(QMouseEvent *event) {
     }
 
     if (rectangleEdit_.active) {
+        dragCurrent_ = event->localPos();
+        update();
+        event->accept();
+        return;
+    }
+
+    if (polygonEdit_.active) {
         dragCurrent_ = event->localPos();
         update();
         event->accept();
@@ -401,6 +423,22 @@ void ScatterPlotItem::mouseReleaseEvent(QMouseEvent *event) {
                 editedBounds.right(),
                 editedBounds.top(),
                 editedBounds.bottom());
+        }
+
+        event->accept();
+        return;
+    }
+
+    if (polygonEdit_.active && event->button() == Qt::LeftButton) {
+        dragCurrent_ = event->localPos();
+        const QVector<QPointF> editedVertices = editedPolygonVertices(dragCurrent_);
+        const QString populationId = polygonEdit_.populationId;
+        const QVector<QPointF> originalVertices = polygonEdit_.startVertices;
+        polygonEdit_ = PolygonEditState {};
+        update();
+
+        if (editedVertices.size() >= 3 && polygonVerticesChanged(editedVertices, originalVertices)) {
+            emit polygonGateEdited(populationId, toVariantList(editedVertices));
         }
 
         event->accept();
@@ -635,6 +673,7 @@ bool ScatterPlotItem::isEditMode() const {
 void ScatterPlotItem::clearInteractionDraft() {
     dragging_ = false;
     rectangleEdit_ = RectangleEditState {};
+    polygonEdit_ = PolygonEditState {};
     polygonVertices_.clear();
     polygonHasHover_ = false;
     update();
@@ -648,6 +687,20 @@ const ScatterPlotItem::GateOverlay *ScatterPlotItem::selectedRectangleOverlay() 
     for (const GateOverlay &overlay : gateOverlayBuffer_) {
         if (overlay.populationId == selectedPopulationKey_ && overlay.kind == "rectangle"
             && overlay.vertices.size() >= 4) {
+            return &overlay;
+        }
+    }
+    return nullptr;
+}
+
+const ScatterPlotItem::GateOverlay *ScatterPlotItem::selectedPolygonOverlay() const {
+    if (selectedPopulationKey_.isEmpty() || selectedPopulationKey_ == "__all__") {
+        return nullptr;
+    }
+
+    for (const GateOverlay &overlay : gateOverlayBuffer_) {
+        if (overlay.populationId == selectedPopulationKey_ && overlay.kind == "polygon"
+            && editablePolygonVertices(overlay).size() >= 3) {
             return &overlay;
         }
     }
@@ -817,6 +870,146 @@ QVector<QPointF> ScatterPlotItem::rectangleVertices(const QRectF &dataBounds) co
         QPointF(dataBounds.left(), dataBounds.bottom()),
         QPointF(dataBounds.left(), dataBounds.top()),
     };
+}
+
+QVector<QPointF> ScatterPlotItem::editablePolygonVertices(const GateOverlay &overlay) const {
+    QVector<QPointF> vertices = overlay.vertices;
+    if (vertices.size() >= 2) {
+        const QPointF first = vertices.first();
+        const QPointF last = vertices.last();
+        if (qAbs(first.x() - last.x()) < 1e-9 && qAbs(first.y() - last.y()) < 1e-9) {
+            vertices.removeLast();
+        }
+    }
+    return vertices;
+}
+
+QVector<QPointF> ScatterPlotItem::closedPolygonPath(const QVector<QPointF> &vertices) const {
+    QVector<QPointF> path = vertices;
+    if (!path.isEmpty()) {
+        path.push_back(path.first());
+    }
+    return path;
+}
+
+ScatterPlotItem::PolygonEditHit ScatterPlotItem::hitTestPolygonEdit(
+    const GateOverlay &overlay,
+    const QPointF &plotPosition,
+    const QRectF &bounds,
+    const QRectF &plotArea) const {
+    const QVector<QPointF> vertices = editablePolygonVertices(overlay);
+    int nearestVertex = -1;
+    qreal nearestDistance = kEditHandleHitPixels + 1.0;
+    for (int index = 0; index < vertices.size(); ++index) {
+        const QPointF mapped = mapDataToPlot(vertices.at(index), bounds, plotArea);
+        const qreal distance = qSqrt(
+            qPow(mapped.x() - plotPosition.x(), 2.0) + qPow(mapped.y() - plotPosition.y(), 2.0));
+        if (distance <= kEditHandleHitPixels && distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestVertex = index;
+        }
+    }
+
+    if (nearestVertex >= 0) {
+        return PolygonEditHit {PolygonEditHandle::Vertex, nearestVertex};
+    }
+    if (polygonContainsPlotPoint(vertices, plotPosition, bounds, plotArea)) {
+        return PolygonEditHit {PolygonEditHandle::Move, -1};
+    }
+    return PolygonEditHit {};
+}
+
+bool ScatterPlotItem::polygonContainsPlotPoint(
+    const QVector<QPointF> &vertices,
+    const QPointF &plotPosition,
+    const QRectF &bounds,
+    const QRectF &plotArea) const {
+    if (vertices.size() < 3) {
+        return false;
+    }
+
+    bool inside = false;
+    int previous = vertices.size() - 1;
+    for (int current = 0; current < vertices.size(); ++current) {
+        const QPointF currentPoint = mapDataToPlot(vertices.at(current), bounds, plotArea);
+        const QPointF previousPoint = mapDataToPlot(vertices.at(previous), bounds, plotArea);
+        const bool crossesY =
+            (currentPoint.y() > plotPosition.y()) != (previousPoint.y() > plotPosition.y());
+        if (crossesY) {
+            const qreal intersectionX = currentPoint.x()
+                + ((plotPosition.y() - currentPoint.y())
+                   * (previousPoint.x() - currentPoint.x())
+                   / (previousPoint.y() - currentPoint.y()));
+            if (plotPosition.x() < intersectionX) {
+                inside = !inside;
+            }
+        }
+        previous = current;
+    }
+    return inside;
+}
+
+bool ScatterPlotItem::beginPolygonEdit(const QPointF &plotPosition) {
+    const GateOverlay *overlay = selectedPolygonOverlay();
+    if (overlay == nullptr) {
+        return false;
+    }
+
+    const QRectF bounds = dataRect();
+    const QRectF plotArea = plotRect();
+    const PolygonEditHit hit = hitTestPolygonEdit(*overlay, plotPosition, bounds, plotArea);
+    if (hit.handle == PolygonEditHandle::None) {
+        return false;
+    }
+
+    polygonEdit_.active = true;
+    polygonEdit_.populationId = overlay->populationId;
+    polygonEdit_.startVertices = editablePolygonVertices(*overlay);
+    polygonEdit_.startData = mapPlotToData(plotPosition, bounds, plotArea);
+    polygonEdit_.handle = hit.handle;
+    polygonEdit_.vertexIndex = hit.vertexIndex;
+    dragStart_ = plotPosition;
+    dragCurrent_ = plotPosition;
+    update();
+    return true;
+}
+
+QVector<QPointF> ScatterPlotItem::editedPolygonVertices(const QPointF &plotPosition) const {
+    QVector<QPointF> vertices = polygonEdit_.startVertices;
+    if (!polygonEdit_.active || vertices.isEmpty()) {
+        return vertices;
+    }
+
+    const QPointF currentData = mapPlotToData(plotPosition, dataRect(), plotRect());
+    const QPointF delta(
+        currentData.x() - polygonEdit_.startData.x(),
+        currentData.y() - polygonEdit_.startData.y());
+
+    if (polygonEdit_.handle == PolygonEditHandle::Move) {
+        for (QPointF &vertex : vertices) {
+            vertex += delta;
+        }
+    } else if (polygonEdit_.handle == PolygonEditHandle::Vertex
+               && polygonEdit_.vertexIndex >= 0
+               && polygonEdit_.vertexIndex < vertices.size()) {
+        vertices[polygonEdit_.vertexIndex] = currentData;
+    }
+    return vertices;
+}
+
+bool ScatterPlotItem::polygonVerticesChanged(
+    const QVector<QPointF> &left,
+    const QVector<QPointF> &right) const {
+    if (left.size() != right.size()) {
+        return true;
+    }
+    for (int index = 0; index < left.size(); ++index) {
+        if (qAbs(left.at(index).x() - right.at(index).x()) > 1e-9
+            || qAbs(left.at(index).y() - right.at(index).y()) > 1e-9) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QSGGeometryNode *ScatterPlotItem::buildSeriesNode(

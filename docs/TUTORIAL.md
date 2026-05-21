@@ -109,11 +109,12 @@ Select `lymphocytes` in the population list, then refine the gate in either of t
 
 1. Use `Gate Refinement` to tighten one of the rectangle bounds, then click `Append Gate Edit`.
 2. Select `Edit Tool`, then drag the selected rectangle's corner, edge, or body directly on the scatter plot.
+3. If a polygon population is selected, drag one of its vertices or drag inside the polygon to move the whole gate.
 
 Expected result:
 
 - the command log gains one `update_rectangle_gate`
-- the rectangle overlay moves to the edited geometry
+- the rectangle or polygon overlay moves to the edited geometry
 - child populations recompute from the edited parent gate
 - undo removes only the refinement command and restores the previous gate geometry
 
